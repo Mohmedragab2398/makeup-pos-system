@@ -9,14 +9,14 @@ from collections.abc import Mapping
 import pytz
 import base64
 
-st.set_page_config(page_title="Yalla Shopping", page_icon="💄", layout="wide")
+st.set_page_config(page_title="Yalla Shopping", page_icon="🛒", layout="wide")
 TZ = pytz.timezone("Africa/Cairo")
 
-# Password protection
+# Password Protection
 def check_password():
     """Returns `True` if the user had the correct password."""
     def password_entered():
-        if st.session_state["password"] == "yalla123":
+        if st.session_state["password"] == "yalla2024":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -35,10 +35,25 @@ def check_password():
 if not check_password():
     st.stop()
 
+# Display logo and title
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    try:
+        with open("assets/logo_waadlash.jpg", "rb") as file:
+            logo_bytes = file.read()
+            logo_base64 = base64.b64encode(logo_bytes).decode()
+            st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
+    except:
+        st.title("🛒 Yalla Shopping")
+    
+    st.caption("Designed by Mohamed Ragab")
+
+st.markdown("---")
+
 SCHEMAS = {
-    "Products": ["SKU","Name","RetailPrice","WholesalePrice","InStock","LowStockThreshold","Active","Notes"],
+    "Products": ["SKU","Name","RetailPrice","InStock","LowStockThreshold","Active","Notes"],
     "Customers": ["CustomerID","Name","Phone","Address","Notes"],
-    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","Channel","PricingType","Subtotal","Discount","Delivery","Deposit","Total","Status","Notes"],
+    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","Channel","Subtotal","Discount","Delivery","Deposit","Total","Status","Notes"],
     "OrderItems": ["OrderID","SKU","Name","Qty","UnitPrice","LineTotal"],
     "StockMovements": ["Timestamp","SKU","Change","Reason","Reference","Note"],
     "Settings": ["Key","Value"]
@@ -102,11 +117,6 @@ def get_gspread_client(_sa_info: dict):
     credentials = Credentials.from_service_account_info(_sa_info, scopes=scopes)
     return gspread.authorize(credentials)
 
-@st.cache_resource(show_spinner=False)
-def get_spreadsheet(_client, spreadsheet_id: str):
-    """Cache the spreadsheet object to avoid repeated API calls."""
-    return _client.open_by_key(spreadsheet_id)
-
 def ensure_worksheet(sh, name):
     try:
         ws = sh.worksheet(name)
@@ -124,7 +134,7 @@ def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
     expected_cols = list(expected_cols_tuple)
     for c in expected_cols:
         if c not in df.columns:
-            df[c] = "" if c not in ["RetailPrice","WholesalePrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
+            df[c] = "" if c not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
     return df[expected_cols]
 
 def _coerce_numeric(df: pd.DataFrame, cols):
@@ -218,14 +228,12 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
       <h1>فاتورة</h1>
       <div class="small">رقم: <b>{order_meta['OrderID']}</b></div>
       <div class="small">التاريخ: <b>{order_meta['DateTime']}</b></div>
-      <div class="small">النوع: <span class="badge">{order_meta['PricingType']}</span></div>
       <div class="small">القناة: {order_meta.get('Channel','')}</div>
     </div>
     <div class="right">
       <div><b>{business_name}</b></div>
       <div class="small">{business_phone}</div>
       <div class="small">{business_addr}</div>
-      <div class="small">Designed by Mohamed Ragab</div>
       {f'<img src="data:image/png;base64,{logo_b64}" style="max-height:60px;margin-top:6px;" />' if logo_b64 else ''}
     </div>
   </div>
@@ -272,24 +280,8 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
     return html
 
 # ---------- App ----------
-# Logo and header
-col1, col2, col3 = st.columns([1, 2, 1])
-with col1:
-    try:
-        st.image("assets/logo_waadlash.jpg", width=100)
-    except:
-        st.markdown("🛍️")
-with col2:
-    st.title("🛍️ Yalla Shopping")
-with col3:
-    st.markdown("---")
-    st.markdown("**Designed by Mohamed Ragab**")
-    st.markdown("*Professional POS System*")
+st.title("🛒 Yalla Shopping")
 st.caption("واجهة تعمل من اللابتوب والموبايل. قاعدة بيانات: Google Sheets.")
-
-# Performance optimization
-with st.spinner("جاري تحميل البيانات..."):
-    pass
 
 # Load credentials (supporting multiple secret formats)
 sa_info = load_service_account_credentials()
@@ -301,7 +293,7 @@ if not spreadsheet_id:
     st.error("يجب إضافة SPREADSHEET_ID داخل secrets أو كمتغير بيئة. راجع الخطوات في README_AR.md.")
     st.stop()
 
-    sh = get_spreadsheet(client, spreadsheet_id)
+sh = client.open_by_key(spreadsheet_id)
 
 class LazyWs:
     def __init__(self, sh):
@@ -318,7 +310,7 @@ ws_map = LazyWs(sh)
 
 settings_ws = ws_map["Settings"]
 settings_df = read_df(settings_ws, SCHEMAS["Settings"])
-biz_name = get_setting(settings_df, "BusinessName", "Waad Lash by SASO")
+biz_name = get_setting(settings_df, "BusinessName", "Yalla Shopping")
 biz_phone = get_setting(settings_df, "BusinessPhone", "")
 biz_addr  = get_setting(settings_df, "BusinessAddress", "")
 logo_b64  = get_setting(settings_df, "BusinessLogoB64", "")
@@ -387,7 +379,6 @@ elif page == "🧾 بيع جديد (POS)":
 
     st.markdown("---")
     st.markdown("### اختيار المنتجات")
-    pricing_type = st.radio("نوع السعر", ["Retail","Wholesale"], horizontal=True)
 
     # Search and filter helpers for easier selection
     with st.container():
@@ -408,7 +399,7 @@ elif page == "🧾 بيع جديد (POS)":
     if only_instock:
         filtered = filtered[filtered["InStock"].astype(float) > 0]
 
-    show_cols = ["SKU","Name","RetailPrice","WholesalePrice","InStock"]
+    show_cols = ["SKU","Name","RetailPrice","InStock"]
     edit_df = filtered[show_cols].copy()
     edit_df["Qty"] = 0
     edit_df = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, key="pos_table")
@@ -430,10 +421,7 @@ elif page == "🧾 بيع جديد (POS)":
             if st.button("تفريغ السلة المؤقتة"):
                 st.session_state["quick_cart"] = {}
 
-    if pricing_type == "Retail":
-        edit_df["UnitPrice"] = edit_df["RetailPrice"].astype(float)
-    else:
-        edit_df["UnitPrice"] = edit_df["WholesalePrice"].astype(float)
+    edit_df["UnitPrice"] = edit_df["RetailPrice"].astype(float)
     edit_df["LineTotal"] = edit_df["Qty"].astype(float) * edit_df["UnitPrice"].astype(float)
     selected_editor = edit_df[edit_df["Qty"].astype(float) > 0]
 
@@ -445,7 +433,7 @@ elif page == "🧾 بيع جديد (POS)":
         for sku_q, qty_q in st.session_state["quick_cart"].items():
             if sku_q in base.index:
                 prod = base.loc[sku_q]
-                price = float(prod["RetailPrice"]) if pricing_type == "Retail" else float(prod["WholesalePrice"])
+                price = float(prod["RetailPrice"])
                 rows.append([str(sku_q), str(prod["Name"]), int(qty_q), price, price*int(qty_q)])
         if rows:
             quick_df = pd.DataFrame(rows, columns=["SKU","Name","Qty","UnitPrice","LineTotal"])
@@ -496,7 +484,7 @@ elif page == "🧾 بيع جديد (POS)":
             now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             order_row = pd.Series({
                 "OrderID": order_id, "DateTime": now, "CustomerID": cust_id, "CustomerName": cust_name,
-                "Channel": channel, "PricingType": pricing_type, "Subtotal": float(subtotal),
+                "Channel": channel, "Subtotal": float(subtotal),
                 "Discount": float(discount), "Delivery": float(delivery), "Deposit": float(deposit), "Total": float(total),
                 "Status": status, "Notes": notes
             })
@@ -544,8 +532,7 @@ elif page == "📦 المنتجات":
         name = st.text_input("اسم المنتج")
         active = st.selectbox("نشط؟", ["Yes","No"], index=0)
     with c2:
-        retail = st.number_input("سعر قطاعي", min_value=0.0, value=0.0, step=1.0)
-        wholesale = st.number_input("سعر جملة", min_value=0.0, value=0.0, step=1.0)
+        retail = st.number_input("سعر المنتج", min_value=0.0, value=0.0, step=1.0)
     with c3:
         instock = st.number_input("المتاح بالمخزن", min_value=0, value=0, step=1)
         lowthr  = st.number_input("حد التنبيه (قرب النفاد)", min_value=0, value=5, step=1)
@@ -557,9 +544,9 @@ elif page == "📦 المنتجات":
             exists = df["SKU"].astype(str) == str(sku)
             if exists.any():
                 idx = df.index[exists][0]
-                df.loc[idx, ["Name","RetailPrice","WholesalePrice","InStock","LowStockThreshold","Active","Notes"]] = [name, retail, wholesale, instock, lowthr, active, notes]
+                df.loc[idx, ["Name","RetailPrice","InStock","LowStockThreshold","Active","Notes"]] = [name, retail, instock, lowthr, active, notes]
             else:
-                df = pd.concat([df, pd.DataFrame([[sku,name,retail,wholesale,instock,lowthr,active,notes]], columns=SCHEMAS["Products"])], ignore_index=True)
+                df = pd.concat([df, pd.DataFrame([[sku,name,retail,instock,lowthr,active,notes]], columns=SCHEMAS["Products"])], ignore_index=True)
             write_df(ws, df)
             st.success("تم الحفظ ✅")
         else:
@@ -606,6 +593,61 @@ elif page == "👤 العملاء":
     if colB.button("🧹 تفريغ الحقول"):
         st.experimental_rerun()
 
+    st.markdown("---")
+    
+    # Customer Search and Order History
+    st.subheader("🔍 البحث عن العميل وطلباته")
+    
+    # Search by name or phone
+    search_query = st.text_input("ابحث بالاسم أو رقم الموبايل", placeholder="اكتب اسم العميل أو رقم الموبايل...")
+    
+    if search_query:
+        # Search in customers
+        name_mask = df["Name"].astype(str).str.contains(search_query, case=False, na=False)
+        phone_mask = df["Phone"].astype(str).str.contains(search_query, case=False, na=False)
+        search_results = df[name_mask | phone_mask]
+        
+        if not search_results.empty:
+            st.success(f"تم العثور على {len(search_results)} عميل")
+            
+            # Show customer details
+            for _, customer in search_results.iterrows():
+                with st.expander(f"👤 {customer['Name']} - {customer['Phone']}", expanded=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**كود العميل:** {customer['CustomerID']}")
+                        st.write(f"**العنوان:** {customer['Address']}")
+                        st.write(f"**الملاحظات:** {customer['Notes']}")
+                    
+                    with col2:
+                        # Get customer orders
+                        orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
+                        customer_orders = orders[orders["CustomerID"] == customer["CustomerID"]]
+                        
+                        if not customer_orders.empty:
+                            st.write(f"**إجمالي الطلبات:** {len(customer_orders)}")
+                            st.write(f"**إجمالي المبيعات:** {customer_orders['Total'].astype(float).sum():.2f}")
+                            
+                            # Show order details
+                            st.write("**تفاصيل الطلبات:**")
+                            for _, order in customer_orders.iterrows():
+                                order_items = read_df(ws_map["OrderItems"], SCHEMAS["OrderItems"], "OrderItems")
+                                order_products = order_items[order_items["OrderID"] == order["OrderID"]]
+                                
+                                st.write(f"📋 **طلب {order['OrderID']}** - {order['DateTime']}")
+                                st.write(f"   الحالة: {order['Status']} | القناة: {order['Channel']}")
+                                st.write(f"   الإجمالي: {order['Total']} | الخصم: {order['Discount']} | التوصيل: {order['Delivery']} | العربون: {order['Deposit']}")
+                                
+                                if not order_products.empty:
+                                    st.write("   المنتجات:")
+                                    for _, item in order_products.iterrows():
+                                        st.write(f"     • {item['Name']} (SKU: {item['SKU']}) - الكمية: {item['Qty']} - السعر: {item['UnitPrice']}")
+                                st.write("---")
+                        else:
+                            st.info("لا توجد طلبات لهذا العميل")
+        else:
+            st.warning("لم يتم العثور على عميل بهذه البيانات")
+    
     st.markdown("---")
     st.subheader("قائمة العملاء")
     st.dataframe(df, use_container_width=True)
