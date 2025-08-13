@@ -4,7 +4,8 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-import random, string, io, json
+import random, string, io, json, os
+from collections.abc import Mapping
 import pytz
 import base64
 
@@ -21,18 +22,61 @@ SCHEMAS = {
 }
 
 # ---------- Helpers ----------
-def get_setting(settings_df, key, default=""):
+def get_setting(settings_df, key, default: str = "") -> str:
     if (settings_df["Key"]==key).any():
         return settings_df.loc[settings_df["Key"]==key, "Value"].iloc[0]
     return default
 
+def _coerce_to_plain_dict(value):
+    """Return a plain dict from Streamlit AttrDict/dict or JSON string."""
+    if isinstance(value, (dict, Mapping)):
+        # Convert any nested AttrDicts by serializing
+        try:
+            return json.loads(json.dumps(value))
+        except Exception:
+            try:
+                return dict(value)
+            except Exception:
+                pass
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            pass
+    return None
+
+def load_service_account_credentials():
+    """Load Google service account credentials from Streamlit secrets.
+
+    Supports either:
+    - [gcp_service_account] (recommended)
+    - GOOGLE_SERVICE_ACCOUNT (JSON string or inline TOML table)
+    """
+    if "gcp_service_account" in st.secrets:
+        coerced = _coerce_to_plain_dict(st.secrets["gcp_service_account"]) 
+        if coerced:
+            return coerced
+    if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
+        coerced = _coerce_to_plain_dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"]) 
+        if coerced:
+            return coerced
+    st.error("بيانات Service Account غير موجودة في secrets. أضف [gcp_service_account] أو GOOGLE_SERVICE_ACCOUNT.")
+    st.stop()
+
+def load_spreadsheet_id():
+    """Read Spreadsheet ID from secrets or environment variables."""
+    sid = str(st.secrets.get("SPREADSHEET_ID", "")).strip()
+    if not sid:
+        sid = os.environ.get("SPREADSHEET_ID", "").strip()
+    return sid
+
 @st.cache_resource(show_spinner=False)
-def get_gspread_client(sa_info: dict):
+def get_gspread_client(_sa_info: dict):
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    credentials = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    credentials = Credentials.from_service_account_info(_sa_info, scopes=scopes)
     return gspread.authorize(credentials)
 
 def ensure_worksheet(sh, name):
@@ -44,13 +88,48 @@ def ensure_worksheet(sh, name):
         ws.update(f"A1:{chr(64+len(header))}1", [header])
     return ws
 
-def read_df(ws, expected_cols):
+@st.cache_data(ttl=10, show_spinner=False)
+def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
+    ws = ws_map[ws_title]
     records = ws.get_all_records()
     df = pd.DataFrame(records)
+    expected_cols = list(expected_cols_tuple)
     for c in expected_cols:
         if c not in df.columns:
             df[c] = "" if c not in ["RetailPrice","WholesalePrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Total","Qty","UnitPrice","LineTotal"] else 0
     return df[expected_cols]
+
+def _coerce_numeric(df: pd.DataFrame, cols):
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    return df
+
+def _coerce_str(df: pd.DataFrame, cols):
+    for c in cols:
+        if c in df.columns:
+            df[c] = df[c].astype(str)
+    return df
+
+def read_df(ws, expected_cols, schema_name=None):
+    # Use worksheet title as the cache key to reduce API reads
+    df = _read_df_cached(ws.title, tuple(expected_cols)).copy()
+    # Normalize types for reliable arithmetic and concatenation
+    if schema_name == "Products":
+        df = _coerce_str(df, ["SKU","Name","Active","Notes"]) 
+        df = _coerce_numeric(df, ["RetailPrice","WholesalePrice","InStock","LowStockThreshold"]).astype({"InStock":"int64","LowStockThreshold":"int64"})
+    elif schema_name == "Customers":
+        df = _coerce_str(df, ["CustomerID","Name","Phone","Address","Notes"]) 
+    elif schema_name == "Orders":
+        df = _coerce_str(df, ["OrderID","DateTime","CustomerID","CustomerName","Channel","PricingType","Status","Notes"]) 
+        df = _coerce_numeric(df, ["Subtotal","Discount","Delivery","Total"]) 
+    elif schema_name == "OrderItems":
+        df = _coerce_str(df, ["OrderID","SKU","Name"]) 
+        df = _coerce_numeric(df, ["Qty","UnitPrice","LineTotal"]).astype({"Qty":"int64"})
+    elif schema_name == "StockMovements":
+        df = _coerce_str(df, ["Timestamp","SKU","Reason","Reference","Note"]) 
+        df = _coerce_numeric(df, ["Change"]).astype({"Change":"int64"})
+    return df
 
 def write_df(ws, df):
     ws.resize(rows=1)
@@ -166,27 +245,30 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
 st.title("💄 POS & Inventory (Makeup) — Waad Lash by SASO")
 st.caption("واجهة تعمل من اللابتوب والموبايل. قاعدة بيانات: Google Sheets.")
 
-if "gcp_service_account" not in st.secrets:
-    st.warning("ضع بيانات الـ Service Account داخل st.secrets['gcp_service_account'] وقيمة SPREADSHEET_ID داخل st.secrets['SPREADSHEET_ID']. راجع ملف README_AR.md.")
-    st.stop()
-
-sa_info = st.secrets["gcp_service_account"]
+# Load credentials (supporting multiple secret formats)
+sa_info = load_service_account_credentials()
 client = get_gspread_client(sa_info)
 
-spreadsheet_id = st.secrets.get("SPREADSHEET_ID", "").strip()
+# Load Spreadsheet ID from secrets or environment
+spreadsheet_id = load_spreadsheet_id()
 if not spreadsheet_id:
-    st.error("يجب إضافة SPREADSHEET_ID داخل secrets. راجع الخطوات في README_AR.md.")
+    st.error("يجب إضافة SPREADSHEET_ID داخل secrets أو كمتغير بيئة. راجع الخطوات في README_AR.md.")
     st.stop()
 
 sh = client.open_by_key(spreadsheet_id)
 
-def load_sheets(sh):
-    sheets = {}
-    for name in SCHEMAS:
-        sheets[name] = ensure_worksheet(sh, name)
-    return sheets
+class LazyWs:
+    def __init__(self, sh):
+        self.sh = sh
+        self._cache = {}
+    def __getitem__(self, name: str):
+        if name in self._cache:
+            return self._cache[name]
+        ws = ensure_worksheet(self.sh, name)
+        self._cache[name] = ws
+        return ws
 
-ws_map = load_sheets(sh)
+ws_map = LazyWs(sh)
 
 settings_ws = ws_map["Settings"]
 settings_df = read_df(settings_ws, SCHEMAS["Settings"])
@@ -207,7 +289,7 @@ page = st.sidebar.radio("القائمة", [
 
 # -------- Dashboard --------
 if page == "📊 لوحة المعلومات":
-    products = read_df(ws_map["Products"], SCHEMAS["Products"])
+    products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
     orders = read_df(ws_map["Orders"], SCHEMAS["Orders"])
 
     col1, col2, col3, col4 = st.columns(4)
@@ -234,9 +316,9 @@ if page == "📊 لوحة المعلومات":
 
 # -------- POS --------
 elif page == "🧾 بيع جديد (POS)":
-    products = read_df(ws_map["Products"], SCHEMAS["Products"])
+    products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
     products = products[products["Active"]!="No"]
-    customers = read_df(ws_map["Customers"], SCHEMAS["Customers"])
+    customers = read_df(ws_map["Customers"], SCHEMAS["Customers"], "Customers")
 
     st.markdown("### بيانات العميل")
     colA, colB = st.columns(2)
@@ -247,8 +329,9 @@ elif page == "🧾 بيع جديد (POS)":
 
     cust_id, cust_name, cust_phone, cust_address, cust_notes = "", "", "", "", ""
     if mode == "عميل موجود" and not customers.empty:
-        sel = st.selectbox("العميل", customers["Name"] + " — " + customers["Phone"])
-        row = customers[customers["Name"] + " — " + customers["Phone"] == sel].iloc[0]
+        customer_labels = (customers["Name"].astype(str) + " — " + customers["Phone"].astype(str))
+        sel = st.selectbox("العميل", customer_labels.tolist())
+        row = customers[customer_labels == sel].iloc[0]
         cust_id = row["CustomerID"]; cust_name = row["Name"]; cust_phone=row["Phone"]; cust_address=row["Address"]
     else:
         cust_name = st.text_input("اسم العميل")
@@ -260,17 +343,74 @@ elif page == "🧾 بيع جديد (POS)":
     st.markdown("### اختيار المنتجات")
     pricing_type = st.radio("نوع السعر", ["Retail","Wholesale"], horizontal=True)
 
+    # Search and filter helpers for easier selection
+    with st.container():
+        c1, c2 = st.columns([3,1])
+        with c1:
+            query = st.text_input("🔎 ابحث بالاسم أو الكود (SKU)", value="")
+        with c2:
+            only_instock = st.checkbox("عرض المتاح فقط", value=False)
+
+    filtered = products.copy()
+    if query.strip():
+        q = query.strip()
+        mask = (
+            filtered["Name"].astype(str).str.contains(q, case=False, na=False) |
+            filtered["SKU"].astype(str).str.contains(q, case=False, na=False)
+        )
+        filtered = filtered[mask]
+    if only_instock:
+        filtered = filtered[filtered["InStock"].astype(float) > 0]
+
     show_cols = ["SKU","Name","RetailPrice","WholesalePrice","InStock"]
-    edit_df = products[show_cols].copy()
+    edit_df = filtered[show_cols].copy()
     edit_df["Qty"] = 0
     edit_df = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, key="pos_table")
+
+    # Quick add (typeahead select + qty) to speed up POS
+    with st.expander("➕ إضافة سريعة للسلة", expanded=False):
+        labels = (products["SKU"].astype(str) + " — " + products["Name"].astype(str)).tolist()
+        quick_label = st.selectbox("اختر منتج", labels, index=None, placeholder="اكتب الاسم أو الكود…")
+        quick_qty = st.number_input("الكمية", min_value=1, value=1, step=1)
+        col_add1, col_add2 = st.columns(2)
+        with col_add1:
+            if st.button("إضافة", key="quick_add_btn") and quick_label:
+                sku_q = str(quick_label).split(" — ")[0]
+                if "quick_cart" not in st.session_state:
+                    st.session_state["quick_cart"] = {}
+                st.session_state["quick_cart"][sku_q] = st.session_state["quick_cart"].get(sku_q, 0) + int(quick_qty)
+                st.success("تمت الإضافة للسلة المؤقتة ✅")
+        with col_add2:
+            if st.button("تفريغ السلة المؤقتة"):
+                st.session_state["quick_cart"] = {}
 
     if pricing_type == "Retail":
         edit_df["UnitPrice"] = edit_df["RetailPrice"].astype(float)
     else:
         edit_df["UnitPrice"] = edit_df["WholesalePrice"].astype(float)
     edit_df["LineTotal"] = edit_df["Qty"].astype(float) * edit_df["UnitPrice"].astype(float)
-    selected = edit_df[edit_df["Qty"].astype(float) > 0]
+    selected_editor = edit_df[edit_df["Qty"].astype(float) > 0]
+
+    # Build quick cart dataframe if present and merge with editor selection
+    quick_df = pd.DataFrame(columns=["SKU","Name","Qty","UnitPrice","LineTotal"])
+    if "quick_cart" in st.session_state and st.session_state["quick_cart"]:
+        rows = []
+        base = products.set_index("SKU")
+        for sku_q, qty_q in st.session_state["quick_cart"].items():
+            if sku_q in base.index:
+                prod = base.loc[sku_q]
+                price = float(prod["RetailPrice"]) if pricing_type == "Retail" else float(prod["WholesalePrice"])
+                rows.append([str(sku_q), str(prod["Name"]), int(qty_q), price, price*int(qty_q)])
+        if rows:
+            quick_df = pd.DataFrame(rows, columns=["SKU","Name","Qty","UnitPrice","LineTotal"])
+
+    if not selected_editor.empty or not quick_df.empty:
+        tmp = pd.concat([selected_editor[["SKU","Name","Qty","UnitPrice","LineTotal"]], quick_df], ignore_index=True)
+        # Group same SKU
+        selected = tmp.groupby(["SKU","Name","UnitPrice"], as_index=False)["Qty"].sum()
+        selected["LineTotal"] = selected["Qty"].astype(float) * selected["UnitPrice"].astype(float)
+    else:
+        selected = pd.DataFrame(columns=["SKU","Name","Qty","UnitPrice","LineTotal"])
 
     subtotal = selected["LineTotal"].sum()
     col1, col2, col3 = st.columns(3)
@@ -291,12 +431,12 @@ elif page == "🧾 بيع جديد (POS)":
             cust_id = "CUST" + datetime.now(TZ).strftime("%Y%m%d%H%M%S")
             new_cust = pd.DataFrame([[cust_id,cust_name,cust_phone,cust_address,cust_notes]], columns=SCHEMAS["Customers"])
             ws = ws_map["Customers"]
-            existing = read_df(ws, SCHEMAS["Customers"])
+            existing = read_df(ws, SCHEMAS["Customers"], "Customers")
             updated = pd.concat([existing, new_cust], ignore_index=True)
             write_df(ws, updated)
 
         stock_ok = True
-        prod_df = read_df(ws_map["Products"], SCHEMAS["Products"]).set_index("SKU")
+        prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
         for _, r in selected.iterrows():
             sku = str(r["SKU"]); need = int(r["Qty"])
             available = int(float(prod_df.loc[sku, "InStock"])) if sku in prod_df.index else 0
@@ -313,12 +453,12 @@ elif page == "🧾 بيع جديد (POS)":
                 "Status": status, "Notes": notes
             })
             orders_ws = ws_map["Orders"]
-            orders_df = read_df(orders_ws, SCHEMAS["Orders"])
+            orders_df = read_df(orders_ws, SCHEMAS["Orders"], "Orders")
             orders_df = pd.concat([orders_df, pd.DataFrame([order_row])], ignore_index=True)
             write_df(orders_ws, orders_df)
 
             items_ws = ws_map["OrderItems"]
-            items_df = read_df(items_ws, SCHEMAS["OrderItems"])
+            items_df = read_df(items_ws, SCHEMAS["OrderItems"], "OrderItems")
             new_items = []
             for _, r in selected.iterrows():
                 new_items.append([order_id, str(r["SKU"]), r["Name"], int(r["Qty"]), float(r["UnitPrice"]), float(r["LineTotal"])])
@@ -327,8 +467,8 @@ elif page == "🧾 بيع جديد (POS)":
             write_df(items_ws, items_df)
 
             stock_ws = ws_map["StockMovements"]
-            stock_mov = read_df(stock_ws, SCHEMAS["StockMovements"])
-            prod_df = read_df(ws_map["Products"], SCHEMAS["Products"]).set_index("SKU")
+            stock_mov = read_df(stock_ws, SCHEMAS["StockMovements"], "StockMovements")
+            prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
 
             for _, r in selected.iterrows():
                 sku = str(r["SKU"]); qty = int(r["Qty"])
@@ -347,7 +487,7 @@ elif page == "🧾 بيع جديد (POS)":
 # -------- Products --------
 elif page == "📦 المنتجات":
     ws = ws_map["Products"]
-    df = read_df(ws, SCHEMAS["Products"])
+    df = read_df(ws, SCHEMAS["Products"], "Products")
 
     st.markdown("### إضافة/تعديل منتج")
     c1, c2, c3 = st.columns(3)
@@ -387,7 +527,7 @@ elif page == "📦 المنتجات":
 # -------- Customers --------
 elif page == "👤 العملاء":
     ws = ws_map["Customers"]
-    df = read_df(ws, SCHEMAS["Customers"])
+    df = read_df(ws, SCHEMAS["Customers"], "Customers")
 
     st.markdown("### إضافة/تعديل عميل")
     c1, c2 = st.columns(2)
@@ -427,13 +567,15 @@ elif page == "📥 حركة المخزون":
     ws_prod = ws_map["Products"]
     ws_mov  = ws_map["StockMovements"]
 
-    products = read_df(ws_prod, SCHEMAS["Products"])
-    movements = read_df(ws_mov, SCHEMAS["StockMovements"])
+    products = read_df(ws_prod, SCHEMAS["Products"], "Products")
+    movements = read_df(ws_mov, SCHEMAS["StockMovements"], "StockMovements")
 
     st.markdown("### إضافة حركة مخزون")
     c1, c2, c3 = st.columns(3)
     with c1:
-        sku = st.selectbox("اختر المنتج (SKU — Name)", products["SKU"] + " — " + products["Name"] if not products.empty else [])
+        product_labels = (products["SKU"].astype(str) + " — " + products["Name"].astype(str)) if not products.empty else pd.Series([], dtype=str)
+        selected_label = st.selectbox("اختر المنتج (SKU — Name)", product_labels.tolist())
+        sku = str(selected_label).split(" — ")[0] if selected_label else ""
     with c2:
         change = st.number_input("الكمية (+ إضافة / - خصم)", step=1, value=0)
     with c3:
@@ -462,9 +604,9 @@ elif page == "📥 حركة المخزون":
 
 # -------- Reports --------
 elif page == "📈 التقارير":
-    orders = read_df(ws_map["Orders"], SCHEMAS["Orders"])
-    items  = read_df(ws_map["OrderItems"], SCHEMAS["OrderItems"])
-    products = read_df(ws_map["Products"], SCHEMAS["Products"])
+    orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
+    items  = read_df(ws_map["OrderItems"], SCHEMAS["OrderItems"], "OrderItems")
+    products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
 
     st.markdown("### تقرير فترة")
     c1, c2 = st.columns(2)
