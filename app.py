@@ -9,13 +9,36 @@ from collections.abc import Mapping
 import pytz
 import base64
 
-st.set_page_config(page_title="Simple POS • Makeup", page_icon="💄", layout="wide")
+st.set_page_config(page_title="Yalla Shopping", page_icon="💄", layout="wide")
 TZ = pytz.timezone("Africa/Cairo")
+
+# Password protection
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        if st.session_state["password"] == "yalla123":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("كلمة المرور", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("كلمة المرور", type="password", on_change=password_entered, key="password")
+        st.error("كلمة مرور خاطئة")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
 
 SCHEMAS = {
     "Products": ["SKU","Name","RetailPrice","WholesalePrice","InStock","LowStockThreshold","Active","Notes"],
     "Customers": ["CustomerID","Name","Phone","Address","Notes"],
-    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","Channel","PricingType","Subtotal","Discount","Delivery","Total","Status","Notes"],
+    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","Channel","PricingType","Subtotal","Discount","Delivery","Deposit","Total","Status","Notes"],
     "OrderItems": ["OrderID","SKU","Name","Qty","UnitPrice","LineTotal"],
     "StockMovements": ["Timestamp","SKU","Change","Reason","Reference","Note"],
     "Settings": ["Key","Value"]
@@ -79,6 +102,11 @@ def get_gspread_client(_sa_info: dict):
     credentials = Credentials.from_service_account_info(_sa_info, scopes=scopes)
     return gspread.authorize(credentials)
 
+@st.cache_resource(show_spinner=False)
+def get_spreadsheet(_client, spreadsheet_id: str):
+    """Cache the spreadsheet object to avoid repeated API calls."""
+    return _client.open_by_key(spreadsheet_id)
+
 def ensure_worksheet(sh, name):
     try:
         ws = sh.worksheet(name)
@@ -88,7 +116,7 @@ def ensure_worksheet(sh, name):
         ws.update(f"A1:{chr(64+len(header))}1", [header])
     return ws
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
     ws = ws_map[ws_title]
     records = ws.get_all_records()
@@ -96,7 +124,7 @@ def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
     expected_cols = list(expected_cols_tuple)
     for c in expected_cols:
         if c not in df.columns:
-            df[c] = "" if c not in ["RetailPrice","WholesalePrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Total","Qty","UnitPrice","LineTotal"] else 0
+            df[c] = "" if c not in ["RetailPrice","WholesalePrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
     return df[expected_cols]
 
 def _coerce_numeric(df: pd.DataFrame, cols):
@@ -197,6 +225,7 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
       <div><b>{business_name}</b></div>
       <div class="small">{business_phone}</div>
       <div class="small">{business_addr}</div>
+      <div class="small">Designed by Mohamed Ragab</div>
       {f'<img src="data:image/png;base64,{logo_b64}" style="max-height:60px;margin-top:6px;" />' if logo_b64 else ''}
     </div>
   </div>
@@ -228,6 +257,7 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
       <tr><td>الإجمالي:</td><td class="right"><b>{float(order_meta['Subtotal']):.2f}</b></td></tr>
       <tr><td>خصم:</td><td class="right">{float(order_meta['Discount']):.2f}</td></tr>
       <tr><td>توصيل:</td><td class="right">{float(order_meta['Delivery']):.2f}</td></tr>
+      <tr><td>عربون:</td><td class="right">{float(order_meta.get('Deposit', 0)):.2f}</td></tr>
       <tr><td><b>الإجمالي النهائي:</b></td><td class="right"><b>{float(order_meta['Total']):.2f}</b></td></tr>
       <tr><td>الحالة:</td><td class="right">{order_meta['Status']}</td></tr>
     </table>
@@ -242,8 +272,24 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
     return html
 
 # ---------- App ----------
-st.title("💄 POS & Inventory (Makeup) — Waad Lash by SASO")
+# Logo and header
+col1, col2, col3 = st.columns([1, 2, 1])
+with col1:
+    try:
+        st.image("assets/logo_waadlash.jpg", width=100)
+    except:
+        st.markdown("🛍️")
+with col2:
+    st.title("🛍️ Yalla Shopping")
+with col3:
+    st.markdown("---")
+    st.markdown("**Designed by Mohamed Ragab**")
+    st.markdown("*Professional POS System*")
 st.caption("واجهة تعمل من اللابتوب والموبايل. قاعدة بيانات: Google Sheets.")
+
+# Performance optimization
+with st.spinner("جاري تحميل البيانات..."):
+    pass
 
 # Load credentials (supporting multiple secret formats)
 sa_info = load_service_account_credentials()
@@ -255,7 +301,7 @@ if not spreadsheet_id:
     st.error("يجب إضافة SPREADSHEET_ID داخل secrets أو كمتغير بيئة. راجع الخطوات في README_AR.md.")
     st.stop()
 
-sh = client.open_by_key(spreadsheet_id)
+    sh = get_spreadsheet(client, spreadsheet_id)
 
 class LazyWs:
     def __init__(self, sh):
@@ -413,12 +459,14 @@ elif page == "🧾 بيع جديد (POS)":
         selected = pd.DataFrame(columns=["SKU","Name","Qty","UnitPrice","LineTotal"])
 
     subtotal = selected["LineTotal"].sum()
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         discount = st.number_input("خصم", min_value=0.0, value=0.0, step=1.0)
     with col2:
         delivery = st.number_input("توصيل", min_value=0.0, value=0.0, step=1.0)
     with col3:
+        deposit = st.number_input("عربون", min_value=0.0, value=0.0, step=1.0)
+    with col4:
         total = subtotal - discount + delivery
         st.metric("الإجمالي", f"{total:.2f}")
 
@@ -449,7 +497,7 @@ elif page == "🧾 بيع جديد (POS)":
             order_row = pd.Series({
                 "OrderID": order_id, "DateTime": now, "CustomerID": cust_id, "CustomerName": cust_name,
                 "Channel": channel, "PricingType": pricing_type, "Subtotal": float(subtotal),
-                "Discount": float(discount), "Delivery": float(delivery), "Total": float(total),
+                "Discount": float(discount), "Delivery": float(delivery), "Deposit": float(deposit), "Total": float(total),
                 "Status": status, "Notes": notes
             })
             orders_ws = ws_map["Orders"]
