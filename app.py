@@ -1,16 +1,30 @@
 
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
-import random, string, io, json, os
-from collections.abc import Mapping
-import pytz
-import base64
+
+# Handle imports with error checking
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    import pytz
+    import base64
+    import random, string, io, json, os
+    from collections.abc import Mapping
+    from datetime import datetime
+    
+    # Set timezone
+    TZ = pytz.timezone("Africa/Cairo")
+    
+except ImportError as e:
+    st.error(f"❌ **Import Error:** {e}")
+    st.error("**Solution:** Please ensure all dependencies are installed:")
+    st.code("pip install -r requirements.txt")
+    st.stop()
+except Exception as e:
+    st.error(f"❌ **Unexpected Error:** {e}")
+    st.stop()
 
 st.set_page_config(page_title="Yalla Shopping", page_icon="🛒", layout="wide")
-TZ = pytz.timezone("Africa/Cairo")
 
 # Password Protection
 def check_password():
