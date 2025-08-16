@@ -1,3 +1,2 @@
-# System packages required for the app
+# Essential system packages for Streamlit Cloud
 python3-dev
-build-essential

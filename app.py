@@ -77,19 +77,14 @@ if not check_password():
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     try:
-        # Check if logo_b64 is defined in session state or use default
-        if 'logo_b64' in locals() and logo_b64:
-            # Display uploaded logo from settings
-            st.image(f"data:image/png;base64,{logo_b64}", width=200)
-        else:
-            # Display default logo from assets
-            try:
-                with open("assets/logo_waadlash.jpg", "rb") as file:
-                    logo_bytes = file.read()
-                    logo_base64 = base64.b64encode(logo_bytes).decode()
-                    st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
-            except FileNotFoundError:
-                st.title("🛒 Yalla Shopping")
+        # Display default logo from assets
+        try:
+            with open("assets/logo_waadlash.jpg", "rb") as file:
+                logo_bytes = file.read()
+                logo_base64 = base64.b64encode(logo_bytes).decode()
+                st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
+        except FileNotFoundError:
+            st.title("🛒 Yalla Shopping")
     except Exception:
         st.title("🛒 Yalla Shopping")
     
