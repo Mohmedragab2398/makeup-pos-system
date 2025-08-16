@@ -77,16 +77,20 @@ if not check_password():
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     try:
-        if logo_b64:
+        # Check if logo_b64 is defined in session state or use default
+        if 'logo_b64' in locals() and logo_b64:
             # Display uploaded logo from settings
             st.image(f"data:image/png;base64,{logo_b64}", width=200)
         else:
             # Display default logo from assets
-            with open("assets/logo_waadlash.jpg", "rb") as file:
-                logo_bytes = file.read()
-                logo_base64 = base64.b64encode(logo_bytes).decode()
-                st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
-    except:
+            try:
+                with open("assets/logo_waadlash.jpg", "rb") as file:
+                    logo_bytes = file.read()
+                    logo_base64 = base64.b64encode(logo_bytes).decode()
+                    st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
+            except FileNotFoundError:
+                st.title("🛒 Yalla Shopping")
+    except Exception:
         st.title("🛒 Yalla Shopping")
     
     st.caption("Designed by Mohamed Ragab")
@@ -290,7 +294,11 @@ def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
             df[c] = "" if c not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
     
     # Return only the expected columns in the right order
-    return df[expected_cols]
+    result_df = df[expected_cols]
+    # Ensure we return a DataFrame, not a Series
+    if isinstance(result_df, pd.Series):
+        result_df = result_df.to_frame().T
+    return result_df
 
 def _coerce_numeric(df: pd.DataFrame, cols):
     df_copy = df.copy()
@@ -670,7 +678,11 @@ if page == "📊 لوحة المعلومات":
             # Ensure DateTime is string for sorting
             orders_sorted = orders.copy()
             orders_sorted["DateTime"] = orders_sorted["DateTime"].astype(str)
-            st.dataframe(orders_sorted.sort_values("DateTime", ascending=False).head(10))
+            # Check if DataFrame is not empty and has the column
+            if not orders_sorted.empty and "DateTime" in orders_sorted.columns:
+                st.dataframe(orders_sorted.sort_values(by="DateTime", ascending=False).head(10))
+            else:
+                st.dataframe(orders.head(10))
         except Exception as e:
             st.warning(f"خطأ في ترتيب الطلبات: {str(e)}")
             st.dataframe(orders.head(10))
@@ -815,8 +827,8 @@ elif page == "🧾 بيع جديد (POS)":
         stock_ok = True
         prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
         for _, r in selected.iterrows():
-            sku = str(r["SKU"]); need = int(float(r["Qty"]))
-            available = int(float(prod_df.loc[sku, "InStock"])) if sku in prod_df.index else 0
+            sku = str(r["SKU"]); need = int(float(str(r["Qty"])))
+            available = int(float(str(prod_df.loc[sku, "InStock"]))) if sku in prod_df.index else 0
             if need > available:
                 stock_ok = False
                 st.error(f"المخزون غير كافٍ للمنتج {sku} — المتاح {available} والطلب {need}")
@@ -843,7 +855,7 @@ elif page == "🧾 بيع جديد (POS)":
             items_df = read_df(items_ws, SCHEMAS["OrderItems"], "OrderItems")
             new_items = []
             for _, r in selected.iterrows():
-                new_items.append([order_id, str(r["SKU"]), r["Name"], int(float(r["Qty"])), float(r["UnitPrice"]), float(r["LineTotal"])])
+                new_items.append([order_id, str(r["SKU"]), str(r["Name"]), int(float(str(r["Qty"]))), float(str(r["UnitPrice"])), float(str(r["LineTotal"]))])
             add_items_df = pd.DataFrame(new_items, columns=SCHEMAS["OrderItems"])
             items_df = pd.concat([items_df, add_items_df], ignore_index=True)
             write_df(items_ws, items_df)
@@ -853,9 +865,9 @@ elif page == "🧾 بيع جديد (POS)":
             prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
 
             for _, r in selected.iterrows():
-                sku = str(r["SKU"]); qty = int(float(r["Qty"]))
+                sku = str(r["SKU"]); qty = int(float(str(r["Qty"])))
                 if sku in prod_df.index:
-                    current = int(float(prod_df.loc[sku,"InStock"]))
+                    current = int(float(str(prod_df.loc[sku,"InStock"])))
                     prod_df.loc[sku,"InStock"] = current - qty
                 stock_mov = pd.concat([stock_mov, pd.DataFrame([[now, sku, -qty, "Sale", order_id, ""]], columns=SCHEMAS["StockMovements"])], ignore_index=True)
 
@@ -1038,7 +1050,7 @@ elif page == "📥 حركة المخزون":
             products_copy = products.copy()
             products_copy.set_index("SKU", inplace=True)
             if sku_only in products_copy.index:
-                current = int(float(products_copy.loc[sku_only,"InStock"]))
+                current = int(float(str(products_copy.loc[sku_only,"InStock"])))
                 products_copy.loc[sku_only,"InStock"] = current + int(change)
                 products_copy = products_copy.reset_index()
                 write_df(ws_prod, products_copy)
@@ -1053,7 +1065,11 @@ elif page == "📥 حركة المخزون":
             # Ensure Timestamp is string for sorting
             movements_sorted = movements.copy()
             movements_sorted["Timestamp"] = movements_sorted["Timestamp"].astype(str)
-            st.dataframe(movements_sorted.sort_values("Timestamp", ascending=False), use_container_width=True)
+            # Check if DataFrame is not empty and has the column
+            if not movements_sorted.empty and "Timestamp" in movements_sorted.columns:
+                st.dataframe(movements_sorted.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+            else:
+                st.dataframe(movements, use_container_width=True)
         except Exception as e:
             st.warning(f"خطأ في ترتيب الحركات: {str(e)}")
             st.dataframe(movements, use_container_width=True)

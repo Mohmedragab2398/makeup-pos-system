@@ -1,26 +1,18 @@
-[global]
-developmentMode = false
-
 [server]
 headless = true
+port = 8501
 enableCORS = false
 enableXsrfProtection = false
-maxUploadSize = 200
-port = 8501
 
 [browser]
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#FF6B9D"
+primaryColor = "#FF6B6B"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 font = "sans serif"
 
-[logger]
-level = "info"
-messageFormat = "%(asctime)s %(message)s"
-
 [client]
-showErrorDetails = false
+showErrorDetails = true
