@@ -29,19 +29,43 @@ st.set_page_config(page_title="Yalla Shopping", page_icon="🛒", layout="wide")
 # Password Protection
 def check_password():
     """Returns `True` if the user had the correct password."""
-    def password_entered():
-        if st.session_state["password"] == "yalla2024":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
+    
+    # Initialize session state keys
     if "password_correct" not in st.session_state:
-        st.text_input("كلمة المرور", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("كلمة المرور", type="password", on_change=password_entered, key="password")
-        st.error("كلمة مرور خاطئة")
+        st.session_state["password_correct"] = False
+    if "show_password_change" not in st.session_state:
+        st.session_state["show_password_change"] = False
+    
+    # Get current password from settings or use default
+    current_password = "yalla2024"  # Default password
+    
+    if not st.session_state["password_correct"]:
+        st.markdown("### 🔐 تسجيل الدخول")
+        st.markdown("**كلمة المرور:** `yalla2024`")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            password_input = st.text_input("كلمة المرور", type="password", key="password")
+        with col2:
+            if st.button("دخول", type="primary"):
+                if password_input == current_password:
+                    st.session_state["password_correct"] = True
+                    st.rerun()
+                else:
+                    st.error("كلمة مرور خاطئة")
+        
+        # Password change option
+        if st.button("تغيير كلمة المرور"):
+            st.session_state["show_password_change"] = True
+            
+        if st.session_state["show_password_change"]:
+            st.markdown("---")
+            st.markdown("### 🔑 تغيير كلمة المرور")
+            st.info("**ملاحظة:** لتغيير كلمة المرور، يجب تعديل الكود مباشرة في ملف `app.py`")
+            st.code("current_password = \"كلمة_المرور_الجديدة\"")
+            if st.button("إغلاق"):
+                st.session_state["show_password_change"] = False
+                
         return False
     else:
         return True
@@ -53,10 +77,15 @@ if not check_password():
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     try:
-        with open("assets/logo_waadlash.jpg", "rb") as file:
-            logo_bytes = file.read()
-            logo_base64 = base64.b64encode(logo_bytes).decode()
-            st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
+        if logo_b64:
+            # Display uploaded logo from settings
+            st.image(f"data:image/png;base64,{logo_b64}", width=200)
+        else:
+            # Display default logo from assets
+            with open("assets/logo_waadlash.jpg", "rb") as file:
+                logo_bytes = file.read()
+                logo_base64 = base64.b64encode(logo_bytes).decode()
+                st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
     except:
         st.title("🛒 Yalla Shopping")
     
@@ -67,7 +96,7 @@ st.markdown("---")
 SCHEMAS = {
     "Products": ["SKU","Name","RetailPrice","InStock","LowStockThreshold","Active","Notes"],
     "Customers": ["CustomerID","Name","Phone","Address","Notes"],
-    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","Channel","Subtotal","Discount","Delivery","Deposit","Total","Status","Notes"],
+    "Orders": ["OrderID","DateTime","CustomerID","CustomerName","CustomerAddress","Channel","Subtotal","Discount","Delivery","Deposit","Total","Status","Notes"],
     "OrderItems": ["OrderID","SKU","Name","Qty","UnitPrice","LineTotal"],
     "StockMovements": ["Timestamp","SKU","Change","Reason","Reference","Note"],
     "Settings": ["Key","Value"]
@@ -114,6 +143,7 @@ def load_service_account_credentials():
             return coerced
     st.error("بيانات Service Account غير موجودة في secrets. أضف [gcp_service_account] أو GOOGLE_SERVICE_ACCOUNT.")
     st.stop()
+    return {}  # This line will never be reached due to st.stop()
 
 def load_spreadsheet_id():
     """Read Spreadsheet ID from secrets or environment variables."""
@@ -134,34 +164,147 @@ def get_gspread_client(_sa_info: dict):
 def ensure_worksheet(sh, name):
     try:
         ws = sh.worksheet(name)
+        # Verify the worksheet has proper headers
+        try:
+            all_values = ws.get_all_values()
+            expected_headers = SCHEMAS[name]
+            
+            if not all_values:
+                # Empty worksheet, add headers
+                ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+            else:
+                first_row = all_values[0]
+                # Check for duplicate headers or wrong headers
+                has_duplicates = len(first_row) != len(set(first_row)) and any(first_row)
+                headers_wrong = (len(first_row) < len(expected_headers) or 
+                               not all(first_row[i] == expected_headers[i] for i in range(min(len(first_row), len(expected_headers)))))
+                
+                if has_duplicates or headers_wrong:
+                    # Keep existing data but fix headers
+                    if len(all_values) > 1:
+                        data_rows = all_values[1:]
+                        ws.clear()
+                        ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+                        if data_rows:
+                            # Ensure data fits schema
+                            formatted_data = []
+                            for row in data_rows:
+                                # Skip empty rows
+                                if any(cell.strip() for cell in row if cell):
+                                    formatted_row = row[:len(expected_headers)] + [''] * max(0, len(expected_headers) - len(row))
+                                    formatted_data.append(formatted_row)
+                            if formatted_data:
+                                end_col = chr(64 + len(expected_headers))
+                                end_row = len(formatted_data) + 1
+                                ws.update(values=formatted_data, range_name=f"A2:{end_col}{end_row}")
+                    else:
+                        ws.clear()
+                        ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+                        
+        except Exception as e:
+            st.warning(f"تحذير: مشكلة في تحديث رؤوس الأعمدة لورقة {name}: {str(e)}")
+            
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=name, rows=1000, cols=30)
-        header = SCHEMAS[name]
-        ws.update(f"A1:{chr(64+len(header))}1", [header])
+        try:
+            ws = sh.add_worksheet(title=name, rows=1000, cols=30)
+            header = SCHEMAS[name]
+            ws.update(values=[header], range_name=f"A1:{chr(64+len(header))}1")
+        except Exception as e:
+            st.error(f"خطأ في إنشاء ورقة {name}: {str(e)}")
+            st.stop()
     return ws
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
     ws = ws_map[ws_title]
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
     expected_cols = list(expected_cols_tuple)
+    
+    try:
+        # First check if worksheet has any data
+        all_values = ws.get_all_values()
+        if not all_values or len(all_values) < 1:
+            # Empty worksheet, create with headers
+            header = SCHEMAS[ws_title]
+            ws.clear()
+            ws.update(values=[header], range_name=f"A1:{chr(64+len(header))}1")
+            # Return empty dataframe with expected columns
+            df = pd.DataFrame(columns=header)
+        else:
+            # Get the expected headers from schema
+            expected_headers = SCHEMAS[ws_title]
+            first_row = all_values[0]
+            
+            # Check if headers match expected schema
+            headers_match = (len(first_row) >= len(expected_headers) and 
+                           all(first_row[i] == expected_headers[i] for i in range(len(expected_headers))))
+            
+            if not headers_match:
+                # Fix headers by clearing and setting correct ones
+                st.warning(f"إصلاح رؤوس الأعمدة لورقة {ws_title}")
+                # Keep existing data but fix headers
+                if len(all_values) > 1:
+                    data_rows = all_values[1:]  # Keep data rows
+                    ws.clear()
+                    ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+                    if data_rows:
+                        # Add data back, ensuring it fits the schema
+                        formatted_data = []
+                        for row in data_rows:
+                            # Pad or trim row to match expected columns
+                            formatted_row = row[:len(expected_headers)] + [''] * max(0, len(expected_headers) - len(row))
+                            formatted_data.append(formatted_row)
+                        if formatted_data:
+                            end_col = chr(64 + len(expected_headers))
+                            end_row = len(formatted_data) + 1
+                            ws.update(values=formatted_data, range_name=f"A2:{end_col}{end_row}")
+                else:
+                    ws.clear()
+                    ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+            
+            # Now get records with expected headers to handle duplicates
+            try:
+                records = ws.get_all_records(expected_headers=expected_headers)
+                df = pd.DataFrame(records)
+            except Exception as e:
+                # If still failing, try with empty_value parameter
+                try:
+                    records = ws.get_all_records(expected_headers=expected_headers, empty_value='')
+                    df = pd.DataFrame(records)
+                except Exception as e2:
+                    # Last resort: manually parse the data
+                    all_values = ws.get_all_values()
+                    if len(all_values) > 1:
+                        data_rows = all_values[1:]
+                        df = pd.DataFrame(data_rows, columns=expected_headers[:len(all_values[0]) if all_values else len(expected_headers)])
+                    else:
+                        df = pd.DataFrame(columns=expected_headers)
+            
+    except Exception as e:
+        st.error(f"خطأ في قراءة ورقة {ws_title}: {str(e)}")
+        # Create empty dataframe with expected schema
+        df = pd.DataFrame(columns=expected_cols)
+    
+    # Ensure all expected columns exist
     for c in expected_cols:
         if c not in df.columns:
             df[c] = "" if c not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
+    
+    # Return only the expected columns in the right order
     return df[expected_cols]
 
 def _coerce_numeric(df: pd.DataFrame, cols):
+    df_copy = df.copy()
     for c in cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    return df
+        if c in df_copy.columns:
+            df_copy[c] = pd.to_numeric(df_copy[c], errors="coerce").fillna(0)
+    return df_copy
 
 def _coerce_str(df: pd.DataFrame, cols):
+    df_copy = df.copy()
     for c in cols:
-        if c in df.columns:
-            df[c] = df[c].astype(str)
-    return df
+        if c in df_copy.columns:
+            df_copy[c] = df_copy[c].astype(str)
+    return df_copy
 
 def read_df(ws, expected_cols, schema_name=None):
     # Use worksheet title as the cache key to reduce API reads
@@ -169,33 +312,112 @@ def read_df(ws, expected_cols, schema_name=None):
     # Normalize types for reliable arithmetic and concatenation
     if schema_name == "Products":
         df = _coerce_str(df, ["SKU","Name","Active","Notes"]) 
-        df = _coerce_numeric(df, ["RetailPrice","WholesalePrice","InStock","LowStockThreshold"]).astype({"InStock":"int64","LowStockThreshold":"int64"})
+        df = _coerce_numeric(df, ["RetailPrice","InStock","LowStockThreshold"])
+        df = df.astype({"InStock":"int64","LowStockThreshold":"int64"})
     elif schema_name == "Customers":
         df = _coerce_str(df, ["CustomerID","Name","Phone","Address","Notes"]) 
     elif schema_name == "Orders":
-        df = _coerce_str(df, ["OrderID","DateTime","CustomerID","CustomerName","Channel","PricingType","Status","Notes"]) 
-        df = _coerce_numeric(df, ["Subtotal","Discount","Delivery","Total"]) 
+        df = _coerce_str(df, ["OrderID","DateTime","CustomerID","CustomerName","CustomerAddress","Channel","Status","Notes"]) 
+        df = _coerce_numeric(df, ["Subtotal","Discount","Delivery","Deposit","Total"]) 
     elif schema_name == "OrderItems":
         df = _coerce_str(df, ["OrderID","SKU","Name"]) 
-        df = _coerce_numeric(df, ["Qty","UnitPrice","LineTotal"]).astype({"Qty":"int64"})
+        df = _coerce_numeric(df, ["Qty","UnitPrice","LineTotal"])
+        df = df.astype({"Qty":"int64"})
     elif schema_name == "StockMovements":
         df = _coerce_str(df, ["Timestamp","SKU","Reason","Reference","Note"]) 
-        df = _coerce_numeric(df, ["Change"]).astype({"Change":"int64"})
+        df = _coerce_numeric(df, ["Change"])
+        df = df.astype({"Change":"int64"})
     return df
 
 def write_df(ws, df):
-    ws.resize(rows=1)
-    if df.empty:
-        return
-    values = [df.columns.tolist()] + df.astype(str).values.tolist()
-    ws.update(f"A1:{gspread.utils.rowcol_to_a1(len(values), len(values[0]))}", values)
+    try:
+        # Clear the worksheet first
+        ws.clear()
+        
+        if df.empty:
+            # Even if empty, write headers
+            ws_name = ws.title
+            if ws_name in SCHEMAS:
+                headers = SCHEMAS[ws_name]
+                ws.update(values=[headers], range_name=f"A1:{chr(64+len(headers))}1")
+            return
+        
+        # Ensure dataframe has the right columns in the right order
+        ws_name = ws.title
+        if ws_name in SCHEMAS:
+            expected_cols = SCHEMAS[ws_name]
+            # Add missing columns
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = "" if col not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
+            # Reorder columns to match schema
+            df = df[expected_cols]
+        
+        # Convert to string and handle NaN values
+        df_str = df.fillna('').astype(str)
+        values = [df_str.columns.tolist()] + df_str.values.tolist()
+        
+        # Update the worksheet
+        end_col = chr(64 + len(values[0]))
+        end_row = len(values)
+        ws.update(values=values, range_name=f"A1:{end_col}{end_row}")
+        
+    except Exception as e:
+        st.error(f"خطأ في كتابة البيانات: {str(e)}")
+        raise e
+
+def validate_worksheet_data(ws_name):
+    """Validate and fix worksheet structure if needed"""
+    try:
+        ws = ws_map[ws_name]
+        expected_headers = SCHEMAS[ws_name]
+        
+        # Get current data
+        all_values = ws.get_all_values()
+        if not all_values:
+            # Empty worksheet, add headers
+            ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
+            return True
+            
+        first_row = all_values[0]
+        
+        # Check for issues
+        has_duplicates = len(first_row) != len(set(first_row)) and any(first_row)
+        headers_wrong = (len(first_row) < len(expected_headers) or 
+                        not all(first_row[i] == expected_headers[i] for i in range(min(len(first_row), len(expected_headers)))))
+        
+        if has_duplicates or headers_wrong:
+            st.warning(f"إصلاح بنية البيانات لورقة {ws_name}")
+            # Fix the worksheet
+            ensure_worksheet(ws_map.sh, ws_name)
+            return True
+            
+        return True
+    except Exception as e:
+        st.error(f"خطأ في التحقق من ورقة {ws_name}: {str(e)}")
+        return False
 
 def gen_id(prefix):
     now = datetime.now(TZ).strftime("%Y%m%d%H%M%S")
     return f"{prefix}{now}{''.join(random.choices(string.digits, k=4))}"
 
-def invoice_html(order_row, items_df, business_name="My Makeup Shop", business_phone="", business_addr="", logo_b64=""):
+def invoice_html(order_row, items_df, business_name="Yalla Shopping", business_phone="", business_addr="", logo_b64=""):
     order_meta = {k: order_row[k] for k in order_row.index}
+    
+    # Get customer address from the order data
+    customer_address = order_meta.get('CustomerAddress', '')
+    
+    # Calculate final amount after deposit
+    subtotal = float(order_meta.get('Subtotal', 0))
+    discount = float(order_meta.get('Discount', 0))
+    delivery = float(order_meta.get('Delivery', 0))
+    deposit = float(order_meta.get('Deposit', 0))
+    
+    # Calculate amounts
+    after_discount = subtotal - discount
+    final_total = after_discount + delivery
+    remaining_balance = final_total - deposit
+    
     rows_html = ""
     for _, r in items_df.iterrows():
         rows_html += f"""
@@ -221,6 +443,18 @@ def invoice_html(order_row, items_df, business_name="My Makeup Shop", business_p
 }}
 body {{ font-family: Arial, Helvetica, Tahoma, sans-serif; margin: 16px; }}
 .header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }}
+.logo-container {{ text-align: center; }}
+.logo {{ max-height: 80px; max-width: 200px; }}
+.logo-placeholder {{ 
+    font-size: 18px; 
+    font-weight: bold; 
+    color: #008080; 
+    padding: 10px; 
+    border: 2px solid #008080; 
+    border-radius: 8px; 
+    text-align: center;
+    background: #f0f8ff;
+}}
 h1 {{ margin: 0; }}
 .small {{ color:#555; font-size: 12px; }}
 .table {{ width: 100%; border-collapse: collapse; margin-top: 16px; }}
@@ -228,12 +462,14 @@ h1 {{ margin: 0; }}
 .table th {{ background: #f7f7f7; }}
 .right {{ text-align:right; }}
 .center {{ text-align:center; }}
-.summary {{ margin-top: 16px; width: 100%; max-width: 360px; margin-left:auto; }}
+.summary {{ margin-top: 16px; width: 100%; max-width: 400px; margin-left:auto; }}
 .summary table {{ width:100%; border-collapse:collapse; }}
 .summary td {{ padding:6px 0; }}
+.summary .highlight {{ background: #f0f8ff; font-weight: bold; }}
 hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
 .footer {{ margin-top: 24px; font-size: 12px; color:#444; }}
 .badge {{ display:inline-block; padding:2px 8px; background:#eee; border-radius: 6px; font-size:12px; }}
+.customer-info {{ background: #f9f9f9; padding: 12px; border-radius: 8px; margin: 16px 0; }}
 </style>
 </head>
 <body>
@@ -245,18 +481,21 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
       <div class="small">القناة: {order_meta.get('Channel','')}</div>
     </div>
     <div class="right">
+      <div class="logo-container">
+        {f'<img src="data:image/png;base64,{logo_b64}" class="logo" alt="Yalla Shopping Logo" />' if logo_b64 else '<div class="logo-placeholder">🛒 Yalla Shopping</div>'}
+      </div>
       <div><b>{business_name}</b></div>
       <div class="small">{business_phone}</div>
       <div class="small">{business_addr}</div>
-      {f'<img src="data:image/png;base64,{logo_b64}" style="max-height:60px;margin-top:6px;" />' if logo_b64 else ''}
     </div>
   </div>
 
   <hr />
 
-  <div>
-    <div>العميل: <b>{order_meta['CustomerName']}</b></div>
-    <div class="small">كود العميل: {order_meta.get('CustomerID','')}</div>
+  <div class="customer-info">
+    <div><strong>العميل:</strong> <b>{order_meta['CustomerName']}</b></div>
+    <div class="small"><strong>كود العميل:</strong> {order_meta.get('CustomerID','')}</div>
+    {f'<div class="small"><strong>العنوان:</strong> {customer_address}</div>' if customer_address else ''}
   </div>
 
   <table class="table">
@@ -276,17 +515,21 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
 
   <div class="summary">
     <table>
-      <tr><td>الإجمالي:</td><td class="right"><b>{float(order_meta['Subtotal']):.2f}</b></td></tr>
-      <tr><td>خصم:</td><td class="right">{float(order_meta['Discount']):.2f}</td></tr>
-      <tr><td>توصيل:</td><td class="right">{float(order_meta['Delivery']):.2f}</td></tr>
-      <tr><td>عربون:</td><td class="right">{float(order_meta.get('Deposit', 0)):.2f}</td></tr>
-      <tr><td><b>الإجمالي النهائي:</b></td><td class="right"><b>{float(order_meta['Total']):.2f}</b></td></tr>
+      <tr><td>إجمالي المنتجات:</td><td class="right">{subtotal:.2f}</td></tr>
+      <tr><td>خصم:</td><td class="right">-{discount:.2f}</td></tr>
+      <tr><td>بعد الخصم:</td><td class="right highlight">{after_discount:.2f}</td></tr>
+      <tr><td>توصيل:</td><td class="right">+{delivery:.2f}</td></tr>
+      <tr><td><strong>الإجمالي النهائي:</strong></td><td class="right highlight"><strong>{final_total:.2f}</strong></td></tr>
+      <tr><td>عربون مدفوع:</td><td class="right">-{deposit:.2f}</td></tr>
+      <tr class="highlight"><td><strong>المتبقي:</strong></td><td class="right"><strong>{remaining_balance:.2f}</strong></td></tr>
       <tr><td>الحالة:</td><td class="right">{order_meta['Status']}</td></tr>
     </table>
   </div>
 
   <div class="footer">
-    شكراً لتعاملكم معنا ✨
+    <p><strong>ملاحظات:</strong> {order_meta.get('Notes', 'لا توجد ملاحظات')}</p>
+    <p>شكراً لتعاملكم معنا ✨</p>
+    <p class="small">تم إنشاء هذه الفاتورة بواسطة نظام Yalla Shopping</p>
   </div>
 </body>
 </html>
@@ -299,6 +542,10 @@ st.caption("واجهة تعمل من اللابتوب والموبايل. قاع
 
 # Load credentials (supporting multiple secret formats)
 sa_info = load_service_account_credentials()
+if sa_info is None:
+    st.error("فشل في تحميل بيانات Service Account")
+    st.stop()
+    
 client = get_gspread_client(sa_info)
 
 # Load Spreadsheet ID from secrets or environment
@@ -307,7 +554,12 @@ if not spreadsheet_id:
     st.error("يجب إضافة SPREADSHEET_ID داخل secrets أو كمتغير بيئة. راجع الخطوات في README_AR.md.")
     st.stop()
 
-sh = client.open_by_key(spreadsheet_id)
+try:
+    sh = client.open_by_key(spreadsheet_id)
+except Exception as e:
+    st.error(f"خطأ في فتح جدول البيانات: {str(e)}")
+    st.error("تأكد من صحة SPREADSHEET_ID وأن Service Account له صلاحية الوصول للجدول.")
+    st.stop()
 
 class LazyWs:
     def __init__(self, sh):
@@ -322,12 +574,43 @@ class LazyWs:
 
 ws_map = LazyWs(sh)
 
-settings_ws = ws_map["Settings"]
-settings_df = read_df(settings_ws, SCHEMAS["Settings"])
-biz_name = get_setting(settings_df, "BusinessName", "Yalla Shopping")
-biz_phone = get_setting(settings_df, "BusinessPhone", "")
-biz_addr  = get_setting(settings_df, "BusinessAddress", "")
-logo_b64  = get_setting(settings_df, "BusinessLogoB64", "")
+try:
+    settings_ws = ws_map["Settings"]
+    settings_df = read_df(settings_ws, SCHEMAS["Settings"])
+    biz_name = get_setting(settings_df, "BusinessName", "Yalla Shopping")
+    biz_phone = get_setting(settings_df, "BusinessPhone", "")
+    biz_addr  = get_setting(settings_df, "BusinessAddress", "")
+    logo_b64  = get_setting(settings_df, "BusinessLogoB64", "")
+except Exception as e:
+    st.error(f"خطأ في تحميل الإعدادات: {str(e)}")
+    # Use default values if settings can't be loaded
+    biz_name = "Yalla Shopping"
+    biz_phone = ""
+    biz_addr = ""
+    logo_b64 = ""
+
+# Add system status and logout in sidebar
+with st.sidebar:
+    # Logout button
+    if st.button("🚪 تسجيل الخروج", type="secondary"):
+        st.session_state["password_correct"] = False
+        st.rerun()
+    
+    st.markdown("---")
+    
+    if st.button("🔧 فحص النظام"):
+        st.write("**حالة النظام:**")
+        try:
+            # Check all required worksheets
+            required_sheets = ["Products", "Customers", "Orders", "OrderItems", "StockMovements", "Settings"]
+            for sheet_name in required_sheets:
+                try:
+                    ws = ws_map[sheet_name]
+                    st.success(f"✅ {sheet_name}")
+                except Exception as e:
+                    st.error(f"❌ {sheet_name}: {str(e)}")
+        except Exception as e:
+            st.error(f"خطأ في فحص النظام: {str(e)}")
 
 page = st.sidebar.radio("القائمة", [
     "📊 لوحة المعلومات",
@@ -341,8 +624,26 @@ page = st.sidebar.radio("القائمة", [
 
 # -------- Dashboard --------
 if page == "📊 لوحة المعلومات":
-    products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
-    orders = read_df(ws_map["Orders"], SCHEMAS["Orders"])
+    try:
+        # Validate worksheets before reading
+        if not validate_worksheet_data("Products"):
+            st.stop()
+        if not validate_worksheet_data("Orders"):
+            st.stop()
+            
+        products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
+        orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
+    except Exception as e:
+        st.error(f"خطأ في تحميل البيانات: {str(e)}")
+        st.error("تأكد من وجود أوراق Products و Orders في جدول البيانات مع الرؤوس الصحيحة.")
+        if st.button("إعادة تهيئة أوراق البيانات"):
+            try:
+                ensure_worksheet(sh, "Products")
+                ensure_worksheet(sh, "Orders")
+                st.success("تم إعادة تهيئة أوراق البيانات. يرجى إعادة تحميل الصفحة.")
+            except Exception as e2:
+                st.error(f"فشل في إعادة التهيئة: {str(e2)}")
+        st.stop()
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("إجمالي المنتجات", len(products))
@@ -364,13 +665,39 @@ if page == "📊 لوحة المعلومات":
         st.dataframe(low_stock)
 
     st.subheader("آخر 10 طلبات")
-    st.dataframe(orders.sort_values("DateTime", ascending=False).head(10))
+    if not orders.empty and "DateTime" in orders.columns:
+        try:
+            # Ensure DateTime is string for sorting
+            orders_sorted = orders.copy()
+            orders_sorted["DateTime"] = orders_sorted["DateTime"].astype(str)
+            st.dataframe(orders_sorted.sort_values("DateTime", ascending=False).head(10))
+        except Exception as e:
+            st.warning(f"خطأ في ترتيب الطلبات: {str(e)}")
+            st.dataframe(orders.head(10))
+    else:
+        st.dataframe(orders.head(10))
 
 # -------- POS --------
 elif page == "🧾 بيع جديد (POS)":
-    products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
-    products = products[products["Active"]!="No"]
-    customers = read_df(ws_map["Customers"], SCHEMAS["Customers"], "Customers")
+    try:
+        # Validate worksheets before reading
+        validate_worksheet_data("Products")
+        validate_worksheet_data("Customers")
+        
+        products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
+        products = products[products["Active"]!="No"]
+        customers = read_df(ws_map["Customers"], SCHEMAS["Customers"], "Customers")
+    except Exception as e:
+        st.error(f"خطأ في تحميل بيانات المنتجات والعملاء: {str(e)}")
+        st.error("تأكد من وجود أوراق Products و Customers في جدول البيانات.")
+        if st.button("إعادة تهيئة أوراق البيانات"):
+            try:
+                ensure_worksheet(sh, "Products")
+                ensure_worksheet(sh, "Customers")
+                st.success("تم إعادة تهيئة أوراق البيانات. يرجى إعادة تحميل الصفحة.")
+            except Exception as e2:
+                st.error(f"فشل في إعادة التهيئة: {str(e2)}")
+        st.stop()
 
     st.markdown("### بيانات العميل")
     colA, colB = st.columns(2)
@@ -488,17 +815,22 @@ elif page == "🧾 بيع جديد (POS)":
         stock_ok = True
         prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
         for _, r in selected.iterrows():
-            sku = str(r["SKU"]); need = int(r["Qty"])
+            sku = str(r["SKU"]); need = int(float(r["Qty"]))
             available = int(float(prod_df.loc[sku, "InStock"])) if sku in prod_df.index else 0
             if need > available:
                 stock_ok = False
                 st.error(f"المخزون غير كافٍ للمنتج {sku} — المتاح {available} والطلب {need}")
         if stock_ok:
+            # Validate required worksheets
+            validate_worksheet_data("Orders")
+            validate_worksheet_data("OrderItems")
+            validate_worksheet_data("StockMovements")
+            
             order_id = gen_id("ORD")
             now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             order_row = pd.Series({
                 "OrderID": order_id, "DateTime": now, "CustomerID": cust_id, "CustomerName": cust_name,
-                "Channel": channel, "Subtotal": float(subtotal),
+                "CustomerAddress": cust_address, "Channel": channel, "Subtotal": float(subtotal),
                 "Discount": float(discount), "Delivery": float(delivery), "Deposit": float(deposit), "Total": float(total),
                 "Status": status, "Notes": notes
             })
@@ -511,7 +843,7 @@ elif page == "🧾 بيع جديد (POS)":
             items_df = read_df(items_ws, SCHEMAS["OrderItems"], "OrderItems")
             new_items = []
             for _, r in selected.iterrows():
-                new_items.append([order_id, str(r["SKU"]), r["Name"], int(r["Qty"]), float(r["UnitPrice"]), float(r["LineTotal"])])
+                new_items.append([order_id, str(r["SKU"]), r["Name"], int(float(r["Qty"])), float(r["UnitPrice"]), float(r["LineTotal"])])
             add_items_df = pd.DataFrame(new_items, columns=SCHEMAS["OrderItems"])
             items_df = pd.concat([items_df, add_items_df], ignore_index=True)
             write_df(items_ws, items_df)
@@ -521,7 +853,7 @@ elif page == "🧾 بيع جديد (POS)":
             prod_df = read_df(ws_map["Products"], SCHEMAS["Products"], "Products").set_index("SKU")
 
             for _, r in selected.iterrows():
-                sku = str(r["SKU"]); qty = int(r["Qty"])
+                sku = str(r["SKU"]); qty = int(float(r["Qty"]))
                 if sku in prod_df.index:
                     current = int(float(prod_df.loc[sku,"InStock"]))
                     prod_df.loc[sku,"InStock"] = current - qty
@@ -536,6 +868,7 @@ elif page == "🧾 بيع جديد (POS)":
 
 # -------- Products --------
 elif page == "📦 المنتجات":
+    validate_worksheet_data("Products")
     ws = ws_map["Products"]
     df = read_df(ws, SCHEMAS["Products"], "Products")
 
@@ -575,6 +908,7 @@ elif page == "📦 المنتجات":
 
 # -------- Customers --------
 elif page == "👤 العملاء":
+    validate_worksheet_data("Customers")
     ws = ws_map["Customers"]
     df = read_df(ws, SCHEMAS["Customers"], "Customers")
 
@@ -635,8 +969,14 @@ elif page == "👤 العملاء":
                     
                     with col2:
                         # Get customer orders
-                        orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
-                        customer_orders = orders[orders["CustomerID"] == customer["CustomerID"]]
+                        try:
+                            validate_worksheet_data("Orders")
+                            validate_worksheet_data("OrderItems")
+                            orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
+                            customer_orders = orders[orders["CustomerID"] == customer["CustomerID"]]
+                        except Exception as e:
+                            st.error(f"خطأ في تحميل طلبات العميل: {str(e)}")
+                            customer_orders = pd.DataFrame()
                         
                         if not customer_orders.empty:
                             st.write(f"**إجمالي الطلبات:** {len(customer_orders)}")
@@ -668,6 +1008,9 @@ elif page == "👤 العملاء":
 
 # -------- Stock Movements --------
 elif page == "📥 حركة المخزون":
+    validate_worksheet_data("Products")
+    validate_worksheet_data("StockMovements")
+    
     ws_prod = ws_map["Products"]
     ws_mov  = ws_map["StockMovements"]
 
@@ -692,22 +1035,37 @@ elif page == "📥 حركة المخزون":
             now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             movements = pd.concat([movements, pd.DataFrame([[now, sku_only, int(change), reason, "", note]], columns=SCHEMAS["StockMovements"])], ignore_index=True)
             write_df(ws_mov, movements)
-            products.set_index("SKU", inplace=True)
-            if sku_only in products.index:
-                current = int(float(products.loc[sku_only,"InStock"]))
-                products.loc[sku_only,"InStock"] = current + int(change)
-                products = products.reset_index()
-                write_df(ws_prod, products)
+            products_copy = products.copy()
+            products_copy.set_index("SKU", inplace=True)
+            if sku_only in products_copy.index:
+                current = int(float(products_copy.loc[sku_only,"InStock"]))
+                products_copy.loc[sku_only,"InStock"] = current + int(change)
+                products_copy = products_copy.reset_index()
+                write_df(ws_prod, products_copy)
                 st.success("تم تحديث المخزون ✅")
         else:
             st.error("يرجى اختيار منتج وتحديد كمية صحيحة")
 
     st.markdown("---")
     st.subheader("سجل الحركات")
-    st.dataframe(movements.sort_values("Timestamp", ascending=False), use_container_width=True)
+    if not movements.empty and "Timestamp" in movements.columns:
+        try:
+            # Ensure Timestamp is string for sorting
+            movements_sorted = movements.copy()
+            movements_sorted["Timestamp"] = movements_sorted["Timestamp"].astype(str)
+            st.dataframe(movements_sorted.sort_values("Timestamp", ascending=False), use_container_width=True)
+        except Exception as e:
+            st.warning(f"خطأ في ترتيب الحركات: {str(e)}")
+            st.dataframe(movements, use_container_width=True)
+    else:
+        st.dataframe(movements, use_container_width=True)
 
 # -------- Reports --------
 elif page == "📈 التقارير":
+    validate_worksheet_data("Orders")
+    validate_worksheet_data("OrderItems")
+    validate_worksheet_data("Products")
+    
     orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
     items  = read_df(ws_map["OrderItems"], SCHEMAS["OrderItems"], "OrderItems")
     products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
@@ -749,6 +1107,22 @@ elif page == "📈 التقارير":
 # -------- Settings --------
 elif page == "⚙️ الإعدادات":
     st.markdown("### معلومات النشاط التجاري")
+    
+    # Password change section
+    with st.expander("🔑 تغيير كلمة المرور", expanded=False):
+        st.info("**ملاحظة:** لتغيير كلمة المرور، يجب تعديل الكود مباشرة في ملف `app.py`")
+        st.code("current_password = \"كلمة_المرور_الجديدة\"")
+        st.markdown("**كلمة المرور الحالية:** `yalla2024`")
+        
+        # Show current password for easy copying
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.text_input("كلمة المرور الحالية", value="yalla2024", disabled=True)
+        with col2:
+            if st.button("نسخ"):
+                st.success("تم نسخ كلمة المرور")
+    
+    st.markdown("---")
     c1, c2 = st.columns(2)
     with c1:
         new_biz_name = st.text_input("اسم النشاط", value=biz_name)
@@ -761,6 +1135,14 @@ elif page == "⚙️ الإعدادات":
     if logo_file is not None:
         logo_b64_new = base64.b64encode(logo_file.read()).decode("utf-8")
         st.image(logo_file, caption="معاينة الشعار", use_column_width=False)
+        st.success("✅ تم تحميل الشعار بنجاح! سيظهر في الفواتير.")
+    
+    # Show current logo if exists
+    if logo_b64:
+        st.markdown("**الشعار الحالي:**")
+        st.image(f"data:image/png;base64,{logo_b64}", caption="الشعار المستخدم حالياً", width=150)
+    else:
+        st.info("ℹ️ لا يوجد شعار محدد حالياً. سيظهر النص الافتراضي '🛒 Yalla Shopping' في الفواتير.")
 
     if st.button("💾 حفظ بيانات النشاط"):
         settings_ws = ws_map["Settings"]
