@@ -2,24 +2,15 @@
 import streamlit as st
 import pandas as pd
 
-# Handle imports with error checking for optional cloud installs
+# Handle imports with error checking (no runtime install to avoid Cloud failures)
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-except ImportError:
-    # Best-effort runtime install for environments where requirements weren't applied
-    try:
-        import sys, subprocess
-        subprocess.run([
-            sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir",
-            "gspread==5.12.4", "google-auth==2.30.0"
-        ], check=True)
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except Exception as e:
-        st.error(f"❌ Import Error: {e}")
-        st.error("Install dependencies locally: pip install -r requirements.txt. On Streamlit Cloud, ensure requirements.txt is at repo root.")
-        st.stop()
+except ImportError as e:
+    st.error(f"❌ Import Error: {e}")
+    st.error("Dependencies missing. Ensure requirements.txt includes 'gspread' and 'google-auth' and redeploy.")
+    st.code("pip install -r requirements.txt")
+    st.stop()
 
 try:
     import pytz
