@@ -11,10 +11,9 @@ try:
     import random, string, io, json, os
     from collections.abc import Mapping
     from datetime import datetime
-    
+
     # Set timezone
     TZ = pytz.timezone("Africa/Cairo")
-    
 except ImportError as e:
     st.error(f"❌ **Import Error:** {e}")
     st.error("**Solution:** Please ensure all dependencies are installed:")
@@ -235,7 +234,7 @@ def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
             
             # Check if headers match expected schema
             headers_match = (len(first_row) >= len(expected_headers) and 
-                           all(first_row[i] == expected_headers[i] for i in range(len(expected_headers))))
+                             all(first_row[i] == expected_headers[i] for i in range(len(expected_headers))))
             
             if not headers_match:
                 # Fix headers by clearing and setting correct ones
@@ -264,12 +263,12 @@ def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
             try:
                 records = ws.get_all_records(expected_headers=expected_headers)
                 df = pd.DataFrame(records)
-            except Exception as e:
+            except Exception:
                 # If still failing, try with empty_value parameter
                 try:
                     records = ws.get_all_records(expected_headers=expected_headers, empty_value='')
                     df = pd.DataFrame(records)
-                except Exception as e2:
+                except Exception:
                     # Last resort: manually parse the data
                     all_values = ws.get_all_values()
                     if len(all_values) > 1:
@@ -336,7 +335,6 @@ def write_df(ws, df):
     try:
         # Clear the worksheet first
         ws.clear()
-        
         if df.empty:
             # Even if empty, write headers
             ws_name = ws.title
@@ -548,7 +546,7 @@ sa_info = load_service_account_credentials()
 if sa_info is None:
     st.error("فشل في تحميل بيانات Service Account")
     st.stop()
-    
+
 client = get_gspread_client(sa_info)
 
 # Load Spreadsheet ID from secrets or environment
@@ -769,7 +767,7 @@ elif page == "🧾 بيع جديد (POS)":
             if st.button("تفريغ السلة المؤقتة"):
                 st.session_state["quick_cart"] = {}
 
-    edit_df["UnitPrice"] = edit_df["RetailPrice"].astype(float)
+        edit_df["UnitPrice"] = edit_df["RetailPrice"].astype(float)
     edit_df["LineTotal"] = edit_df["Qty"].astype(float) * edit_df["UnitPrice"].astype(float)
     selected_editor = edit_df[edit_df["Qty"].astype(float) > 0]
 
@@ -1008,7 +1006,7 @@ elif page == "👤 العملاء":
                             st.info("لا توجد طلبات لهذا العميل")
         else:
             st.warning("لم يتم العثور على عميل بهذه البيانات")
-    
+
     st.markdown("---")
     st.subheader("قائمة العملاء")
     st.dataframe(df, use_container_width=True)
