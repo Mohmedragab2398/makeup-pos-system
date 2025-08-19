@@ -2,27 +2,23 @@
 import streamlit as st
 import pandas as pd
 
-# Handle imports with error checking
+# Handle imports with error checking for optional cloud installs
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-except Exception:
-    # Attempt a one-time runtime install for cloud environments that didn't pick up requirements
+except ImportError:
+    # Best-effort runtime install for environments where requirements weren't applied
     try:
         import sys, subprocess
-        with st.spinner("Installing required packages (gspread, google-auth)..."):
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "gspread>=5.12.4", "google-auth>=2.30.0"],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir",
+            "gspread==5.12.4", "google-auth==2.30.0"
+        ], check=True)
         import gspread
         from google.oauth2.service_account import Credentials
     except Exception as e:
-        st.error(f"❌ **Import Error:** {e}")
-        st.error("**Solution:** Ensure requirements are installed or reload the app after dependencies finish installing.")
-        st.code("pip install -r requirements.txt")
+        st.error(f"❌ Import Error: {e}")
+        st.error("Install dependencies locally: pip install -r requirements.txt. On Streamlit Cloud, ensure requirements.txt is at repo root.")
         st.stop()
 
 try:
@@ -918,7 +914,7 @@ elif page == "📦 المنتجات":
             st.error("الرجاء إدخال كود الصنف واسم المنتج")
 
     if colB.button("🧹 تفريغ الحقول"):
-        st.experimental_rerun()
+        st.rerun()
 
     st.markdown("---")
     st.subheader("قائمة المنتجات")
@@ -957,7 +953,7 @@ elif page == "👤 العملاء":
             st.success("تم الحفظ ✅")
 
     if colB.button("🧹 تفريغ الحقول"):
-        st.experimental_rerun()
+        st.rerun()
 
     st.markdown("---")
     
