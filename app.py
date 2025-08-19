@@ -6,19 +6,33 @@ import pandas as pd
 try:
     import gspread
     from google.oauth2.service_account import Credentials
+except Exception:
+    # Attempt a one-time runtime install for cloud environments that didn't pick up requirements
+    try:
+        import sys, subprocess
+        with st.spinner("Installing required packages (gspread, google-auth)..."):
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "gspread>=5.12.4", "google-auth>=2.30.0"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except Exception as e:
+        st.error(f"❌ **Import Error:** {e}")
+        st.error("**Solution:** Ensure requirements are installed or reload the app after dependencies finish installing.")
+        st.code("pip install -r requirements.txt")
+        st.stop()
+
+try:
     import pytz
     import base64
     import random, string, io, json, os
     from collections.abc import Mapping
     from datetime import datetime
-
     # Set timezone
     TZ = pytz.timezone("Africa/Cairo")
-except ImportError as e:
-    st.error(f"❌ **Import Error:** {e}")
-    st.error("**Solution:** Please ensure all dependencies are installed:")
-    st.code("pip install -r requirements.txt")
-    st.stop()
 except Exception as e:
     st.error(f"❌ **Unexpected Error:** {e}")
     st.stop()
