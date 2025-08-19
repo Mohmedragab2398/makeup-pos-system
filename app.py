@@ -40,7 +40,6 @@ def check_password():
     
     if not st.session_state["password_correct"]:
         st.markdown("### 🔐 تسجيل الدخول")
-        st.markdown("**كلمة المرور:** `yalla2024`")
         
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -1121,15 +1120,6 @@ elif page == "⚙️ الإعدادات":
     with st.expander("🔑 تغيير كلمة المرور", expanded=False):
         st.info("**ملاحظة:** لتغيير كلمة المرور، يجب تعديل الكود مباشرة في ملف `app.py`")
         st.code("current_password = \"كلمة_المرور_الجديدة\"")
-        st.markdown("**كلمة المرور الحالية:** `yalla2024`")
-        
-        # Show current password for easy copying
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.text_input("كلمة المرور الحالية", value="yalla2024", disabled=True)
-        with col2:
-            if st.button("نسخ"):
-                st.success("تم نسخ كلمة المرور")
     
     st.markdown("---")
     c1, c2 = st.columns(2)
