@@ -1,29 +1,31 @@
-# 💄 Waad Lash by SASO — Professional Makeup POS System
+# 🛒 Yalla Shopping - Makeup POS System
 
-A modern, fast, and efficient Point of Sale (POS) system built with Streamlit and Google Sheets backend. Perfect for makeup stores, beauty salons, and retail businesses.
+A comprehensive Point of Sale (POS) system built with Streamlit and Google Sheets for makeup and beauty product businesses.
 
 ## ✨ Features
 
-- **🛒 Smart POS System**: Easy product selection with search by name/SKU
-- **📊 Inventory Management**: Real-time stock tracking with low stock alerts
-- **👥 Customer Management**: Customer database with order history
-- **💰 Flexible Pricing**: Retail and wholesale pricing options
-- **📋 Order Management**: Complete order processing with discounts and delivery
-- **📄 Invoice Generation**: Professional HTML invoices for printing
-- **📈 Reports & Analytics**: Sales reports and inventory movements
-- **🚀 Performance Optimized**: Fast loading with intelligent caching
+- **🧾 Point of Sale (POS)** - Complete sales interface with product selection
+- **📦 Product Management** - Add, edit, and track inventory
+- **👤 Customer Management** - Customer database with order history
+- **📊 Dashboard** - Real-time sales analytics and low stock alerts
+- **📈 Reports** - Sales reports and inventory tracking
+- **📥 Stock Management** - Track stock movements and adjustments
+- **🧾 Invoice Generation** - Professional HTML invoices with business branding
+- **🔐 Password Protection** - Secure access to the system
+- **🌐 Multi-language** - Arabic interface with RTL support
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- Google Account
-- Google Spreadsheet (ID already configured)
+- Python 3.11.9
+- Google Sheets API access
+- Streamlit Cloud account (for deployment)
 
-### Local Setup
+### Local Installation
+
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/makeup-pos-system.git
+   git clone https://github.com/Mohmedragab2398/makeup-pos-system.git
    cd makeup-pos-system
    ```
 
@@ -32,115 +34,142 @@ A modern, fast, and efficient Point of Sale (POS) system built with Streamlit an
    pip install -r requirements.txt
    ```
 
-3. **Configure Google Sheets**
-   - Create a Google Cloud Service Account
-   - Download the JSON key file
-   - Share your spreadsheet with the service account email as Editor
-   - Copy the spreadsheet ID
-
-4. **Set up secrets**
+3. **Test the installation**
    ```bash
-   mkdir .streamlit
-   cp .streamlit/secrets.example.toml .streamlit/secrets.toml
-   # Edit secrets.toml with your credentials
+   python test_app.py
+   python check_dependencies.py
+   python health_check.py
    ```
 
-5. **Run the application**
+4. **Run the application**
    ```bash
    streamlit run app.py
    ```
 
-### Streamlit Cloud Deployment
-1. Push your code to GitHub
-2. Connect your repository to Streamlit Cloud
-3. Add your secrets in the Streamlit Cloud dashboard
-4. Deploy and share your app!
+### 🌐 Streamlit Cloud Deployment
 
-## 📁 Project Structure
+1. **Fork this repository** to your GitHub account
 
-```
-makeup-pos-system/
-├── app.py                 # Main Streamlit application
-├── requirements.txt       # Python dependencies
-├── .streamlit/           # Streamlit configuration
-│   ├── secrets.toml      # Your API credentials (not in git)
-│   └── secrets.example.toml  # Example secrets file
-├── assets/               # Static assets (logos, images)
-├── data/                 # Sample CSV data files
-├── templates/            # HTML invoice templates
-└── README.md            # This file
-```
+2. **Create a Google Sheets spreadsheet** and note the Spreadsheet ID
+
+3. **Set up Google Service Account**:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing
+   - Enable Google Sheets API and Google Drive API
+   - Create a Service Account and download the JSON key
+   - Share your spreadsheet with the service account email
+
+4. **Deploy to Streamlit Cloud**:
+   - Go to [share.streamlit.io](https://share.streamlit.io)
+   - Connect your GitHub account
+   - Deploy from your forked repository
+   - Set main file path: `app.py`
+
+5. **Configure Secrets** in Streamlit Cloud:
+   ```toml
+   # Spreadsheet ID from your Google Sheets URL
+   SPREADSHEET_ID = "your_spreadsheet_id_here"
+   
+   # Google Service Account credentials
+   [gcp_service_account]
+   type = "service_account"
+   project_id = "your-project-id"
+   private_key_id = "your-private-key-id"
+   private_key = "-----BEGIN PRIVATE KEY-----\nYOUR-PRIVATE-KEY\n-----END PRIVATE KEY-----\n"
+   client_email = "your-service-account@your-project.iam.gserviceaccount.com"
+   client_id = "your-client-id"
+   auth_uri = "https://accounts.google.com/o/oauth2/auth"
+   token_uri = "https://oauth2.googleapis.com/token"
+   auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+   client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/your-service-account%40your-project.iam.gserviceaccount.com"
+   ```
 
 ## 🔧 Configuration
 
-### Google Sheets Setup
-1. Create a new Google Spreadsheet
-2. Create a Google Cloud Service Account
-3. Enable Google Sheets API
-4. Download the service account JSON key
-5. Share the spreadsheet with the service account email
+### Default Login
+- **Username**: No username required
+- **Password**: `yalla2024`
 
-### Secrets Configuration
-Create `.streamlit/secrets.toml`:
-```toml
-SPREADSHEET_ID = "your_spreadsheet_id_here"
+### Business Settings
+Configure your business information in the Settings page:
+- Business name
+- Phone number
+- Address
+- Logo (for invoices)
 
-[gcp_service_account]
-type = "service_account"
-project_id = "your_project_id"
-private_key_id = "your_private_key_id"
-private_key = """-----BEGIN PRIVATE KEY-----
-your_private_key_content_here
------END PRIVATE KEY-----"""
-client_email = "your_service_account_email"
-client_id = "your_client_id"
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "your_cert_url"
-universe_domain = "googleapis.com"
+## 📊 Database Schema
+
+The system uses Google Sheets with the following worksheets:
+
+- **Products**: SKU, Name, RetailPrice, InStock, LowStockThreshold, Active, Notes
+- **Customers**: CustomerID, Name, Phone, Address, Notes
+- **Orders**: OrderID, DateTime, CustomerID, CustomerName, CustomerAddress, Channel, Subtotal, Discount, Delivery, Deposit, Total, Status, Notes
+- **OrderItems**: OrderID, SKU, Name, Qty, UnitPrice, LineTotal
+- **StockMovements**: Timestamp, SKU, Change, Reason, Reference, Note
+- **Settings**: Key, Value
+
+## 🛠️ Development
+
+### Project Structure
 ```
+makeup-pos-system/
+├── app.py                          # Main Streamlit application
+├── requirements.txt                # Python dependencies
+├── runtime.txt                     # Python version specification
+├── check_dependencies.py           # Dependency verification script
+├── health_check.py                 # Health check script
+├── test_app.py                     # Comprehensive test suite
+├── DEPLOYMENT_FINAL_SOLUTION.md    # Deployment troubleshooting guide
+├── assets/                         # Static assets
+│   └── logo_waadlash.jpg          # Default logo
+├── data/                          # Sample data files
+│   ├── customers_waadlash.csv
+│   └── products_waadlash.csv
+└── templates/                     # HTML templates
+    └── invoice_template.html      # Invoice template
+```
+
+### Testing
+Run the comprehensive test suite:
+```bash
+python test_app.py
+```
+
+### Troubleshooting
+If you encounter import errors, refer to `DEPLOYMENT_FINAL_SOLUTION.md` for detailed troubleshooting steps.
 
 ## 🎯 Usage
 
-### POS Operations
-1. **Product Selection**: Search products by name or SKU
-2. **Quantity Entry**: Set quantities in the data editor
-3. **Pricing**: Choose between retail and wholesale pricing
-4. **Checkout**: Apply discounts, delivery fees, and complete the sale
-
-### Inventory Management
-- View current stock levels
-- Track low stock items
-- Monitor stock movements
-- Update inventory counts
-
-### Customer Management
-- Add new customers
-- View customer history
-- Track customer orders
-- Manage customer information
-
-## 🚀 Performance Features
-
-- **Smart Caching**: Reduces API calls to Google Sheets
-- **Lazy Loading**: Worksheets are loaded only when needed
-- **Efficient Data Handling**: Optimized pandas operations
-- **Responsive UI**: Fast interactions and real-time updates
+1. **Login** with the default password `yalla2024`
+2. **Add Products** in the Products section
+3. **Add Customers** in the Customers section
+4. **Make Sales** using the POS interface
+5. **Track Inventory** in Stock Movements
+6. **Generate Reports** for business insights
+7. **Configure Settings** for your business
 
 ## 🔒 Security
 
-- API credentials stored securely in Streamlit secrets
-- No hardcoded sensitive information
-- Secure Google Sheets API integration
-- Environment variable support for local development
+- Password-protected access
+- Secure Google Sheets integration
+- Service account authentication
+- No sensitive data stored locally
 
-## 📱 Mobile Friendly
+## 🌍 Localization
 
-- Responsive design for mobile devices
-- Touch-friendly interface
-- Optimized for mobile POS operations
-- Works on any device with a web browser
+- Arabic interface with RTL support
+- Cairo timezone (Africa/Cairo)
+- Arabic number formatting
+- Bilingual error messages
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+## 👨‍💻 Developer
+
+**Mohamed Ragab**
+- GitHub: [@Mohmedragab2398](https://github.com/Mohmedragab2398)
 
 ## 🤝 Contributing
 
@@ -150,25 +179,13 @@ universe_domain = "googleapis.com"
 4. Test thoroughly
 5. Submit a pull request
 
-## 📄 License
+## 📞 Support
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-If you encounter any issues:
-1. Check the README_AR.md for Arabic instructions
-2. Verify your Google Sheets configuration
-3. Ensure all secrets are properly set
-4. Check the Streamlit Cloud logs for deployment issues
-
-## 🎉 Acknowledgments
-
-- Built with Streamlit for the beautiful UI
-- Powered by Google Sheets for data storage
-- Optimized for performance and user experience
-- Designed for professional makeup retail operations
+For support and questions:
+1. Check the `DEPLOYMENT_FINAL_SOLUTION.md` guide
+2. Run the diagnostic scripts (`test_app.py`, `health_check.py`)
+3. Open an issue on GitHub
 
 ---
 
-**Ready for production use!** 🚀
+**Built with ❤️ for the beauty industry**
