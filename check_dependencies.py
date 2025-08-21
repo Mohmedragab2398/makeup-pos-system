@@ -27,11 +27,14 @@ def main():
         ("streamlit", "streamlit>=1.28.0"),
         ("gspread", "gspread>=5.12.4"),
         ("google.auth", "google-auth>=2.30.0"),
+        ("google.oauth2.service_account", "google-auth>=2.30.0"),
         ("google_auth_oauthlib", "google-auth-oauthlib>=1.0.0"),
+        ("google_auth_httplib2", "google-auth-httplib2>=0.2.0"),
         ("pandas", "pandas>=2.0.0"),
         ("pytz", "pytz>=2023.3"),
         ("numpy", "numpy>=1.24.0"),
         ("requests", "requests>=2.31.0"),
+        ("cachetools", "cachetools>=5.3.1"),
     ]
     
     all_good = True
