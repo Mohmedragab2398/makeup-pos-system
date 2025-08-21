@@ -1,7 +1,7 @@
 # Core Streamlit and web framework
 streamlit==1.28.0
 
-# Google Sheets integration - CRITICAL DEPENDENCIES
+# Google Sheets integration - CRITICAL DEPENDENCIES - UPDATED 2025
 gspread==5.12.4
 google-auth==2.30.0
 google-auth-oauthlib==1.0.0

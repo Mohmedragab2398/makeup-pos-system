@@ -1,4 +1,4 @@
-
+# YALLA SHOPPING POS SYSTEM - UPDATED 2025-01-21
 import streamlit as st
 import pandas as pd
 
@@ -6,10 +6,13 @@ import pandas as pd
 try:
     import gspread
     from google.oauth2.service_account import Credentials
+    st.success("✅ All critical dependencies loaded successfully!")
 except ImportError as e:
     st.error(f"❌ Import Error: {e}")
-    st.error("Dependencies missing. Ensure requirements.txt includes 'gspread' and 'google-auth' and redeploy.")
+    st.error("🔧 SOLUTION: Clear Streamlit Cloud cache and redeploy!")
+    st.error("Dependencies missing. Ensure requirements.txt includes complete Google Auth ecosystem.")
     st.code("pip install -r requirements.txt")
+    st.info("📋 Check STREAMLIT_CLOUD_FIX.md for detailed fix instructions")
     st.stop()
 
 try:
