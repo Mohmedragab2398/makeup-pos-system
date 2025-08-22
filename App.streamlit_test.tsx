@@ -1,6 +1,20 @@
 import React from 'react';
-import { Box, Typography, Alert, Button, Paper, Grid, Card, CardContent } from '@mui/material';
-import { CheckCircle, Error, PlayArrow, Description, GitHub } from '@mui/icons-material';
+import { 
+  Box, 
+  Typography, 
+  Alert, 
+  Button, 
+  Paper, 
+  Grid, 
+  Card, 
+  CardContent 
+} from '@mui/material';
+import { 
+  CheckCircle, 
+  PlayArrow, 
+  Description, 
+  GitHub 
+} from '@mui/icons-material';
 
 const StreamlitTestApp: React.FC = () => {
   const testResults = [
