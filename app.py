@@ -93,22 +93,42 @@ def check_password():
 if not check_password():
     st.stop()
 
-# Display logo and title
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    try:
-        # Display default logo from assets
-        try:
-            with open("assets/logo_waadlash.jpg", "rb") as file:
-                logo_bytes = file.read()
-                logo_base64 = base64.b64encode(logo_bytes).decode()
-                st.image(f"data:image/jpeg;base64,{logo_base64}", width=200)
-        except FileNotFoundError:
-            st.title("🛒 Yalla Shopping")
-    except Exception:
-        st.title("🛒 Yalla Shopping")
+def load_logo():
+    """Load and return logo as base64 string"""
+    logo_paths = [
+        "assets/logo_yalla_shopping.png",  # New logo
+        "assets/logo_waadlash.jpg",        # Fallback logo
+    ]
     
-    st.caption("Designed by Mohamed Ragab")
+    for logo_path in logo_paths:
+        try:
+            with open(logo_path, "rb") as file:
+                logo_bytes = file.read()
+                return base64.b64encode(logo_bytes).decode()
+        except FileNotFoundError:
+            continue
+    return None
+
+def display_app_header():
+    """Display app header with logo and title"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        logo_b64 = load_logo()
+        if logo_b64:
+            # Determine image type based on first few bytes or file extension
+            if logo_b64.startswith('/9j/') or logo_b64.startswith('iVBOR'):
+                mime_type = "image/png" if logo_b64.startswith('iVBOR') else "image/jpeg"
+                st.image(f"data:{mime_type};base64,{logo_b64}", width=200)
+            else:
+                st.image(f"data:image/png;base64,{logo_b64}", width=200)
+        else:
+            st.title("🛒 Yalla Shopping")
+        
+        st.caption("Py Saso Mostafa")
+        st.caption("Designed by Mohamed Ragab")
+
+# Display logo and title
+display_app_header()
 
 st.markdown("---")
 
@@ -152,16 +172,66 @@ def load_service_account_credentials():
     - [gcp_service_account] (recommended)
     - GOOGLE_SERVICE_ACCOUNT (JSON string or inline TOML table)
     """
-    if "gcp_service_account" in st.secrets:
-        coerced = _coerce_to_plain_dict(st.secrets["gcp_service_account"]) 
-        if coerced:
-            return coerced
-    if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
-        coerced = _coerce_to_plain_dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"]) 
-        if coerced:
-            return coerced
-    st.error("بيانات Service Account غير موجودة في secrets. أضف [gcp_service_account] أو GOOGLE_SERVICE_ACCOUNT.")
-    st.stop()
+    try:
+        if "gcp_service_account" in st.secrets:
+            coerced = _coerce_to_plain_dict(st.secrets["gcp_service_account"]) 
+            if coerced:
+                # Fix private key formatting if needed
+                if "private_key" in coerced:
+                    private_key = coerced["private_key"]
+                    # Clean up the private key - remove any extra whitespace and fix newlines
+                    private_key = private_key.strip()
+                    # Replace literal \n with actual newlines
+                    if "\\n" in private_key:
+                        private_key = private_key.replace("\\n", "\n")
+                    
+                    # Ensure proper formatting
+                    lines = private_key.split('\n')
+                    # Remove empty lines and strip whitespace
+                    lines = [line.strip() for line in lines if line.strip()]
+                    
+                    # Reconstruct with proper formatting
+                    if lines:
+                        # Ensure proper BEGIN/END format
+                        if not lines[0].startswith("-----BEGIN PRIVATE KEY-----"):
+                            st.error("❌ Private key must start with '-----BEGIN PRIVATE KEY-----'")
+                            st.stop()
+                        if not lines[-1].endswith("-----END PRIVATE KEY-----"):
+                            st.error("❌ Private key must end with '-----END PRIVATE KEY-----'")
+                            st.stop()
+                        
+                        # Reconstruct the private key with proper newlines
+                        coerced["private_key"] = '\n'.join(lines)
+                
+                return coerced
+        
+        if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
+            coerced = _coerce_to_plain_dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"]) 
+            if coerced:
+                # Fix private key formatting if needed
+                if "private_key" in coerced:
+                    private_key = coerced["private_key"]
+                    private_key = private_key.strip()
+                    if "\\n" in private_key:
+                        private_key = private_key.replace("\\n", "\n")
+                    
+                    # Clean up formatting
+                    lines = private_key.split('\n')
+                    lines = [line.strip() for line in lines if line.strip()]
+                    if lines:
+                        coerced["private_key"] = '\n'.join(lines)
+                
+                return coerced
+        
+        st.error("❌ بيانات Service Account غير موجودة في secrets.")
+        st.info("📋 أضف [gcp_service_account] أو GOOGLE_SERVICE_ACCOUNT في إعدادات Streamlit Cloud.")
+        st.stop()
+        
+    except Exception as e:
+        st.error(f"❌ خطأ في تحميل بيانات Service Account: {str(e)}")
+        st.error("🔧 تأكد من صحة تنسيق البيانات في secrets")
+        st.stop()
+    
     return {}  # This line will never be reached due to st.stop()
 
 def load_spreadsheet_id():
@@ -173,12 +243,40 @@ def load_spreadsheet_id():
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client(_sa_info: dict):
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    credentials = Credentials.from_service_account_info(_sa_info, scopes=scopes)
-    return gspread.authorize(credentials)
+    """Create gspread client with proper error handling"""
+    try:
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        credentials = Credentials.from_service_account_info(_sa_info, scopes=scopes)
+        return gspread.authorize(credentials)
+        
+    except Exception as e:
+        st.error(f"❌ خطأ في إنشاء اتصال Google Sheets: {str(e)}")
+        
+        # Check for quota exceeded error
+        if "quota" in str(e).lower() or "rate_limit" in str(e).lower():
+            st.error("🚫 تم تجاوز حد استخدام Google Sheets API")
+            st.info("⏳ انتظر دقيقة واحدة ثم حاول مرة أخرى")
+            with st.expander("💡 نصائح لتجنب تجاوز الحد", expanded=True):
+                st.markdown("""
+                **لتجنب تجاوز حد الاستخدام:**
+                1. تجنب تحديث الصفحة بشكل متكرر
+                2. انتظر بين العمليات
+                3. استخدم النظام بشكل طبيعي دون إعادة تحميل مستمرة
+                
+                **الحد الحالي:** 60 طلب في الدقيقة
+                """)
+        else:
+            with st.expander("🛠️ إرشادات إصلاح المشكلة", expanded=True):
+                st.markdown("""
+                **تحقق من:**
+                1. صحة بيانات Service Account في secrets
+                2. أن Service Account له صلاحية الوصول للجدول
+                3. أن SPREADSHEET_ID صحيح
+                """)
+        st.stop()
 
 def ensure_worksheet(sh, name):
     try:
@@ -233,7 +331,7 @@ def ensure_worksheet(sh, name):
             st.stop()
     return ws
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
     ws = ws_map[ws_title]
     expected_cols = list(expected_cols_tuple)
@@ -424,6 +522,9 @@ def gen_id(prefix):
     return f"{prefix}{now}{''.join(random.choices(string.digits, k=4))}"
 
 def invoice_html(order_row, items_df, business_name="Yalla Shopping", business_phone="", business_addr="", logo_b64=""):
+    # Use the new logo if no logo is provided
+    if not logo_b64:
+        logo_b64 = load_logo()
     order_meta = {k: order_row[k] for k in order_row.index}
     
     # Get customer address from the order data
@@ -465,17 +566,18 @@ def invoice_html(order_row, items_df, business_name="Yalla Shopping", business_p
 }}
 body {{ font-family: Arial, Helvetica, Tahoma, sans-serif; margin: 16px; }}
 .header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }}
-.logo-container {{ text-align: center; }}
-.logo {{ max-height: 80px; max-width: 200px; }}
+.logo-container {{ text-align: center; margin-bottom: 10px; }}
+.logo {{ max-height: 100px; max-width: 200px; border-radius: 8px; }}
 .logo-placeholder {{ 
     font-size: 18px; 
     font-weight: bold; 
     color: #008080; 
-    padding: 10px; 
+    padding: 15px; 
     border: 2px solid #008080; 
-    border-radius: 8px; 
+    border-radius: 12px; 
     text-align: center;
-    background: #f0f8ff;
+    background: linear-gradient(135deg, #f0f8ff, #e6f3ff);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }}
 h1 {{ margin: 0; }}
 .small {{ color:#555; font-size: 12px; }}
@@ -504,7 +606,7 @@ hr {{ border: none; border-top: 1px dashed #aaa; margin: 16px 0; }}
     </div>
     <div class="right">
       <div class="logo-container">
-        {f'<img src="data:image/png;base64,{logo_b64}" class="logo" alt="Yalla Shopping Logo" />' if logo_b64 else '<div class="logo-placeholder">🛒 Yalla Shopping</div>'}
+        {f'<img src="data:image/png;base64,{logo_b64}" class="logo" alt="Yalla Shopping Logo" />' if logo_b64 else '<div class="logo-placeholder">🛒 Yalla Shopping<br><small>Py Saso Mostafa</small></div>'}
       </div>
       <div><b>{business_name}</b></div>
       <div class="small">{business_phone}</div>
@@ -889,7 +991,9 @@ elif page == "🧾 بيع جديد (POS)":
             write_df(stock_ws, stock_mov)
 
             st.success(f"تم إنشاء الطلب {order_id} وتحديث المخزون ✅")
-            invoice = invoice_html(order_row, add_items_df, business_name=biz_name, business_phone=biz_phone, business_addr=biz_addr, logo_b64=logo_b64)
+            # Use the file system logo if available, otherwise use uploaded logo
+            invoice_logo = load_logo() or logo_b64
+            invoice = invoice_html(order_row, add_items_df, business_name=biz_name, business_phone=biz_phone, business_addr=biz_addr, logo_b64=invoice_logo)
             st.download_button("🧾 تحميل الفاتورة (HTML للطباعة)", data=invoice.encode("utf-8"), file_name=f"invoice_{order_id}.html", mime="text/html", use_container_width=True)
 
 # -------- Products --------
@@ -1158,12 +1262,19 @@ elif page == "⚙️ الإعدادات":
         st.image(logo_file, caption="معاينة الشعار", use_column_width=False)
         st.success("✅ تم تحميل الشعار بنجاح! سيظهر في الفواتير.")
     
-    # Show current logo if exists
-    if logo_b64:
+    # Show current logo - check both uploaded and file system logos
+    current_logo_b64 = load_logo()
+    if current_logo_b64 or logo_b64:
         st.markdown("**الشعار الحالي:**")
-        st.image(f"data:image/png;base64,{logo_b64}", caption="الشعار المستخدم حالياً", width=150)
+        display_logo = logo_b64 if logo_b64 else current_logo_b64
+        st.image(f"data:image/png;base64,{display_logo}", caption="الشعار المستخدم حالياً", width=150)
+        
+        if current_logo_b64 and not logo_b64:
+            st.success("✅ يتم استخدام الشعار من ملف assets/logo_yalla_shopping.png")
     else:
         st.info("ℹ️ لا يوجد شعار محدد حالياً. سيظهر النص الافتراضي '🛒 Yalla Shopping' في الفواتير.")
+        st.markdown("**لإضافة الشعار الجديد:**")
+        st.code("احفظ الشعار كملف assets/logo_yalla_shopping.png في مجلد المشروع")
 
     if st.button("💾 حفظ بيانات النشاط"):
         settings_ws = ws_map["Settings"]

@@ -1,3 +1,4 @@
+/* Yalla Shopping POS System Styles */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
@@ -5,33 +6,111 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  /* Yalla Shopping Brand Colors */
+  --primary-teal: #008080;
+  --secondary-teal: #20b2aa;
+  --light-blue: #f0f8ff;
+  --accent-gold: #ffd700;
+  --text-dark: #333333;
+  --text-light: #666666;
+  --background: #ffffff;
+  --paper: #fafafa;
 }
 
 #root {
   margin: auto;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 
-body {
-  margin: 0;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  min-height: 100vh;
+/* Streamlit POS specific styles */
+.streamlit-pos-header {
+  background: linear-gradient(135deg, var(--primary-teal), var(--secondary-teal));
+  color: white;
+  padding: 2rem;
+  border-radius: 12px;
+  text-align: center;
+  margin-bottom: 2rem;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
+.logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1rem;
 }
 
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
+.yalla-logo {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-teal), var(--secondary-teal));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 3rem;
+  font-weight: bold;
+  box-shadow: 0 8px 32px rgba(0, 128, 128, 0.3);
 }
 
-::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+.pos-section {
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--primary-teal);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #555;
+.feature-highlight {
+  background: var(--light-blue);
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+}
+
+.brand-text {
+  color: var(--primary-teal);
+  font-weight: 600;
+}
+
+/* Invoice styles preview */
+.invoice-preview {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  background: white;
+  font-family: Arial, sans-serif;
+}
+
+.invoice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed #aaa;
+}
+
+.invoice-logo {
+  max-height: 100px;
+  max-width: 200px;
+  border-radius: 8px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .yalla-logo {
+    width: 150px;
+    height: 150px;
+    font-size: 2rem;
+  }
+  
+  .streamlit-pos-header {
+    padding: 1rem;
+  }
+  
+  .pos-section {
+    padding: 1rem;
+  }
 }
