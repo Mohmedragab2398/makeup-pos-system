@@ -1,6 +1,7 @@
 # YALLA SHOPPING POS SYSTEM - PRODUCTION READY v1.0.0
 import streamlit as st
 import pandas as pd
+import time
 
 # Handle imports with error checking (no runtime install to avoid Cloud failures)
 try:
@@ -140,6 +141,25 @@ SCHEMAS = {
     "StockMovements": ["Timestamp","SKU","Change","Reason","Reference","Note"],
     "Settings": ["Key","Value"]
 }
+
+# ---------- Quota Management ----------
+def check_api_quota():
+    """Check if we're hitting API limits and show appropriate message"""
+    if "api_calls_count" not in st.session_state:
+        st.session_state.api_calls_count = 0
+        st.session_state.last_reset = time.time()
+    
+    # Reset counter every minute
+    if time.time() - st.session_state.last_reset > 60:
+        st.session_state.api_calls_count = 0
+        st.session_state.last_reset = time.time()
+    
+    # Warn if approaching limit
+    if st.session_state.api_calls_count > 45:
+        st.warning("⚠️ اقتراب من حد استخدام API. تجنب تحديث الصفحة بكثرة.")
+        time.sleep(1)  # Small delay to prevent rapid requests
+    
+    st.session_state.api_calls_count += 1
 
 # ---------- Helpers ----------
 def get_setting(settings_df, key, default: str = "") -> str:
@@ -331,87 +351,57 @@ def ensure_worksheet(sh, name):
             st.stop()
     return ws
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)  # Increased cache time to 5 minutes
 def _read_df_cached(ws_title: str, expected_cols_tuple: tuple):
-    ws = ws_map[ws_title]
-    expected_cols = list(expected_cols_tuple)
-    
     try:
-        # First check if worksheet has any data
+        ws = ws_map[ws_title]
+        expected_cols = list(expected_cols_tuple)
+        
+        # Use batch request to get all data at once
         all_values = ws.get_all_values()
+        
         if not all_values or len(all_values) < 1:
-            # Empty worksheet, create with headers
-            header = SCHEMAS[ws_title]
-            ws.clear()
-            ws.update(values=[header], range_name=f"A1:{chr(64+len(header))}1")
             # Return empty dataframe with expected columns
-            df = pd.DataFrame(columns=header)
+            expected_headers = SCHEMAS[ws_title]
+            df = pd.DataFrame(columns=expected_headers)
         else:
-            # Get the expected headers from schema
             expected_headers = SCHEMAS[ws_title]
             first_row = all_values[0]
             
-            # Check if headers match expected schema
-            headers_match = (len(first_row) >= len(expected_headers) and 
-                             all(first_row[i] == expected_headers[i] for i in range(len(expected_headers))))
-            
-            if not headers_match:
-                # Fix headers by clearing and setting correct ones
-                st.warning(f"إصلاح رؤوس الأعمدة لورقة {ws_title}")
-                # Keep existing data but fix headers
+            # Check if headers match - if not, use expected headers
+            if len(first_row) >= len(expected_headers) and all(first_row[i] == expected_headers[i] for i in range(len(expected_headers))):
+                # Headers match, parse data normally
                 if len(all_values) > 1:
-                    data_rows = all_values[1:]  # Keep data rows
-                    ws.clear()
-                    ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
-                    if data_rows:
-                        # Add data back, ensuring it fits the schema
-                        formatted_data = []
-                        for row in data_rows:
-                            # Pad or trim row to match expected columns
-                            formatted_row = row[:len(expected_headers)] + [''] * max(0, len(expected_headers) - len(row))
-                            formatted_data.append(formatted_row)
-                        if formatted_data:
-                            end_col = chr(64 + len(expected_headers))
-                            end_row = len(formatted_data) + 1
-                            ws.update(values=formatted_data, range_name=f"A2:{end_col}{end_row}")
+                    data_rows = all_values[1:]
+                    df = pd.DataFrame(data_rows, columns=expected_headers[:len(first_row)])
                 else:
-                    ws.clear()
-                    ws.update(values=[expected_headers], range_name=f"A1:{chr(64+len(expected_headers))}1")
-            
-            # Now get records with expected headers to handle duplicates
-            try:
-                records = ws.get_all_records(expected_headers=expected_headers)
-                df = pd.DataFrame(records)
-            except Exception:
-                # If still failing, try with empty_value parameter
-                try:
-                    records = ws.get_all_records(expected_headers=expected_headers, empty_value='')
-                    df = pd.DataFrame(records)
-                except Exception:
-                    # Last resort: manually parse the data
-                    all_values = ws.get_all_values()
-                    if len(all_values) > 1:
-                        data_rows = all_values[1:]
-                        df = pd.DataFrame(data_rows, columns=expected_headers[:len(all_values[0]) if all_values else len(expected_headers)])
-                    else:
-                        df = pd.DataFrame(columns=expected_headers)
-            
+                    df = pd.DataFrame(columns=expected_headers)
+            else:
+                # Headers don't match, create empty dataframe and warn
+                st.warning(f"⚠️ رؤوس الأعمدة لورقة {ws_title} تحتاج إصلاح. استخدم 'فحص النظام' لإصلاحها.")
+                df = pd.DataFrame(columns=expected_headers)
+        
+        # Ensure all expected columns exist
+        for c in expected_cols:
+            if c not in df.columns:
+                df[c] = "" if c not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
+        
+        # Return only the expected columns in the right order
+        result_df = df[expected_cols]
+        if isinstance(result_df, pd.Series):
+            result_df = result_df.to_frame().T
+        return result_df
+        
     except Exception as e:
-        st.error(f"خطأ في قراءة ورقة {ws_title}: {str(e)}")
-        # Create empty dataframe with expected schema
-        df = pd.DataFrame(columns=expected_cols)
-    
-    # Ensure all expected columns exist
-    for c in expected_cols:
-        if c not in df.columns:
-            df[c] = "" if c not in ["RetailPrice","InStock","LowStockThreshold","Subtotal","Discount","Delivery","Deposit","Total","Qty","UnitPrice","LineTotal"] else 0
-    
-    # Return only the expected columns in the right order
-    result_df = df[expected_cols]
-    # Ensure we return a DataFrame, not a Series
-    if isinstance(result_df, pd.Series):
-        result_df = result_df.to_frame().T
-    return result_df
+        # Handle quota exceeded specifically
+        if "quota" in str(e).lower() or "rate_limit" in str(e).lower():
+            st.error("🚫 تم تجاوز حد استخدام Google Sheets API")
+            st.info("⏳ انتظر 2-3 دقائق ثم أعد تحميل الصفحة")
+            st.stop()
+        else:
+            st.error(f"خطأ في قراءة ورقة {ws_title}: {str(e)}")
+            # Return empty dataframe with expected schema
+            return pd.DataFrame(columns=expected_cols_tuple)
 
 def _coerce_numeric(df: pd.DataFrame, cols):
     df_copy = df.copy()
@@ -715,6 +705,11 @@ except Exception as e:
 
 # Add system status and logout in sidebar
 with st.sidebar:
+    # Show API usage status
+    if "api_calls_count" in st.session_state:
+        usage_color = "🟢" if st.session_state.api_calls_count < 30 else "🟡" if st.session_state.api_calls_count < 50 else "🔴"
+        st.caption(f"{usage_color} API Usage: {st.session_state.api_calls_count}/60 per minute")
+    
     # Logout button
     if st.button("🚪 تسجيل الخروج", type="secondary"):
         st.session_state["password_correct"] = False
@@ -725,16 +720,28 @@ with st.sidebar:
     if st.button("🔧 فحص النظام"):
         st.write("**حالة النظام:**")
         try:
-            # Check all required worksheets
+            check_api_quota()
+            # Check all required worksheets with minimal API calls
             required_sheets = ["Products", "Customers", "Orders", "OrderItems", "StockMovements", "Settings"]
             for sheet_name in required_sheets:
                 try:
                     ws = ws_map[sheet_name]
                     st.success(f"✅ {sheet_name}")
+                    time.sleep(0.2)  # Small delay between checks
                 except Exception as e:
+                    if "quota" in str(e).lower():
+                        st.error("🚫 تم تجاوز حد API - توقف الفحص")
+                        break
                     st.error(f"❌ {sheet_name}: {str(e)}")
         except Exception as e:
             st.error(f"خطأ في فحص النظام: {str(e)}")
+    
+    # Clear cache button
+    if st.button("🗑️ مسح الذاكرة المؤقتة"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.success("تم مسح الذاكرة المؤقتة")
+        st.info("أعد تحميل الصفحة لتحديث البيانات")
 
 page = st.sidebar.radio("القائمة", [
     "📊 لوحة المعلومات",
@@ -749,25 +756,24 @@ page = st.sidebar.radio("القائمة", [
 # -------- Dashboard --------
 if page == "📊 لوحة المعلومات":
     try:
-        # Validate worksheets before reading
-        if not validate_worksheet_data("Products"):
-            st.stop()
-        if not validate_worksheet_data("Orders"):
-            st.stop()
+        check_api_quota()  # Check quota before making API calls
+        
+        # Show loading message
+        with st.spinner("تحميل البيانات..."):
+            products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
+            orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
             
-        products = read_df(ws_map["Products"], SCHEMAS["Products"], "Products")
-        orders = read_df(ws_map["Orders"], SCHEMAS["Orders"], "Orders")
     except Exception as e:
-        st.error(f"خطأ في تحميل البيانات: {str(e)}")
-        st.error("تأكد من وجود أوراق Products و Orders في جدول البيانات مع الرؤوس الصحيحة.")
-        if st.button("إعادة تهيئة أوراق البيانات"):
-            try:
-                ensure_worksheet(sh, "Products")
-                ensure_worksheet(sh, "Orders")
-                st.success("تم إعادة تهيئة أوراق البيانات. يرجى إعادة تحميل الصفحة.")
-            except Exception as e2:
-                st.error(f"فشل في إعادة التهيئة: {str(e2)}")
-        st.stop()
+        if "quota" in str(e).lower() or "rate_limit" in str(e).lower():
+            st.error("🚫 تم تجاوز حد استخدام Google Sheets API")
+            st.info("⏳ انتظر 2-3 دقائق ثم أعد تحميل الصفحة")
+            st.info("💡 تجنب تحديث الصفحة بشكل متكرر لتجنب هذه المشكلة")
+            st.stop()
+        else:
+            st.error(f"خطأ في تحميل البيانات: {str(e)}")
+            if st.button("🔄 إعادة المحاولة"):
+                st.rerun()
+            st.stop()
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("إجمالي المنتجات", len(products))
